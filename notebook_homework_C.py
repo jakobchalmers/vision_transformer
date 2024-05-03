@@ -2,6 +2,9 @@
 
 import deeptrack as dt
 import numpy as np
+import torch
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 IMAGE_SIZE = 64
 sequence_length = 10  # Number of frames per sequence
@@ -46,7 +49,6 @@ optics = dt.Fluorescence(
 )
 
 
-
 # Combining everything into a dataset.
 # Note that the sequences are flipped in different directions, so that each unique sequence defines
 # in fact 8 sequences flipped in different directions, to speed up data generation
@@ -54,33 +56,66 @@ sequential_images = dt.Sequence(
     optics(particle ** (lambda: 1 + np.random.randint(MAX_PARTICLES))),
     sequence_length=sequence_length,
 )
-data_loader = sequential_images >> dt.FlipUD() >> dt.FlipDiagonal() >> dt.FlipLR()
-
-# dataset.plot()
-
-
-# %% Generate batch
-import torch
-import torch.nn as nn
-
-batch_size = 3
+data_loader: dt.Sequence = (
+    sequential_images >> dt.FlipUD() >> dt.FlipDiagonal() >> dt.FlipLR()
+)
 
 
-# batch = data_loader.batch(batch_size=batch_size)
-# batch = torch.tensor(
-#     batch
-# )  # (num_frames, batch_size, image_width, image_height, color=1)
-# batch = torch.tensor(batch, dtype=torch.float).swapaxes(
-#     1, 0
-# )  # (batch_size, num_frames, image_width, image_height, color=1)
+class SequenceDataset(Dataset):
+    def __init__(self, data_generator, data_size):
+        data = []
+        for _ in tqdm(range(data_size)):
+            sequence = data_generator.update().resolve()
+
+            data.append(sequence)
+        self.sequences = torch.tensor(data)
+
+    def __len__(self):
+        return self.sequences.shape[0]
+
+    def __getitem__(self, idx):
+        sequence = self.sequences[idx].float()
+        return sequence
+
+
+data_size = 500
+dataset: SequenceDataset = SequenceDataset(data_loader, data_size)
+
+FILE_NAME = "particle_dataset.pth"
+torch.save(dataset, FILE_NAME)
+
+# %%
+
+try:
+    sequence_dataset = dataset
+except:
+    print("Loading...")
+    sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
+
+
+class ImageDataset(Dataset):
+    def __init__(self, sequence_dataset):
+        sequences = sequence_dataset.sequences
+        self.images: torch.Tensor = sequences.view(-1, *sequences.shape[2:])
+    
+    def __len__(self):
+        return self.images.shape[0]
+    
+    def __getitem__(self, index):
+        image = self.images[index].float()
+        return image
+
+image_dataset = ImageDataset(sequence_dataset)
+
+data_loader = DataLoader(
+    image_dataset,
+    batch_size=32,
+    shuffle=True,
+)
 
 # %%
 import matplotlib.pyplot as plt
-
-# print(batch.shape)
-
-# plt.imshow(batch[0, 7, :, :, 0])
-
+import torch.nn as nn
 
 class Autoencoder(nn.Module):
     def __init__(
@@ -89,7 +124,7 @@ class Autoencoder(nn.Module):
         super(Autoencoder, self).__init__()
         self.encoder = nn.Sequential(
             nn.Conv2d(1, hidden_feature_dim, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
+            # nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(
                 hidden_feature_dim,
@@ -98,7 +133,7 @@ class Autoencoder(nn.Module):
                 stride=1,
                 padding=1,
             ),
-            nn.ReLU(),
+            # nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
         self.decoder = nn.Sequential(
@@ -110,9 +145,14 @@ class Autoencoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            nn.ReLU(),
+            # nn.ReLU(),
             nn.ConvTranspose2d(
-                hidden_feature_dim, 1, kernel_size=3, stride=2, padding=1, output_padding=1
+                hidden_feature_dim,
+                1,
+                kernel_size=3,
+                stride=2,
+                padding=1,
+                output_padding=1,
             ),
         )
 
@@ -121,11 +161,12 @@ class Autoencoder(nn.Module):
         x = self.decoder(x)
         return x
 
-def train(model, num_batches, train_loader, criterion, optimizer):
+
+def train(model, train_loader, criterion, optimizer):
     model.train()
     total_loss = 0
-    batch_count = 0
     for input in train_loader:
+        input: torch.Tensor = input.permute(0, 3, 1, 2)
         output = model(input)
 
         loss = criterion(input, output)
@@ -134,28 +175,22 @@ def train(model, num_batches, train_loader, criterion, optimizer):
 
         total_loss += loss.item()
 
-        if batch_count >= num_batches:
-            break
-        batch_count += 1
-
-    mean_loss = total_loss / num_batches
+    mean_loss = total_loss / len(train_loader)
     return mean_loss
 
-def test(model, num_batches, data_loader, criterion):
+
+def test(model, data_loader, criterion):
     model.train()
     total_loss = 0
-    batch_count = 0
     for input in data_loader:
+        input: torch.Tensor = input.permute(0, 3, 1, 2)
         output = model(input)
 
         loss = criterion(input, output)
         total_loss += loss.item()
 
-        if batch_count >= num_batches:
-            break
-        batch_count += 1
 
-    mean_loss = total_loss / num_batches
+    mean_loss = total_loss / len(data_loader)
     return mean_loss
 
 
@@ -163,18 +198,18 @@ def test(model, num_batches, data_loader, criterion):
 from tqdm import tqdm
 import torch.optim as optim
 
-model = Autoencoder(image_height=IMAGE_SIZE, image_width=IMAGE_SIZE, hidden_feature_dim=16, latent_feature_dim=8)
+model = Autoencoder(
+    image_height=IMAGE_SIZE,
+    image_width=IMAGE_SIZE,
+    hidden_feature_dim=16,
+    latent_feature_dim=8,
+)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
 
-num_epochs = 4
-num_train_batches = 100
-num_test_batches = num_train_batches // 2
+num_epochs = 5
 for i, epoch in tqdm(enumerate(range(num_epochs))):
-    train_loss = train(model, num_train_batches, data_loader, criterion, optimizer)
-    test_loss = test(model, num_test_batches, data_loader= criterion)
+    train_loss = train(model, data_loader, criterion, optimizer)
+    test_loss = test(model, data_loader, criterion)
 
     print(f"Epoch {i}: Train loss {train_loss}, Test Loss {test_loss}")
-
-
-
