@@ -56,7 +56,7 @@ sequential_images = dt.Sequence(
     optics(particle ** (lambda: 1 + np.random.randint(MAX_PARTICLES))),
     sequence_length=sequence_length,
 )
-data_loader: dt.Sequence = (
+train_loader: dt.Sequence = (
     sequential_images >> dt.FlipUD() >> dt.FlipDiagonal() >> dt.FlipLR()
 )
 
@@ -78,19 +78,27 @@ class SequenceDataset(Dataset):
         return sequence
 
 
-data_size = 500
-dataset: SequenceDataset = SequenceDataset(data_loader, data_size)
-
 FILE_NAME = "particle_dataset.pth"
-torch.save(dataset, FILE_NAME)
+TEST_FILE_NAME = "particle_test_dataset.pth"
+GENERATE = False
+if GENERATE:
+    data_size = 500
+    dataset: SequenceDataset = SequenceDataset(train_loader, data_size)
+    torch.save(dataset, FILE_NAME)
+
+    test_data_size = 100
+    test_dataset: SequenceDataset = SequenceDataset(train_loader, test_data_size)
+    torch.save(test_dataset, TEST_FILE_NAME)
 
 # %%
 
 try:
-    sequence_dataset = dataset
+    sequence_dataset: SequenceDataset = dataset
+    sequence_test_dataset: SequenceDataset = test_dataset
 except:
     print("Loading...")
     sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
+    sequence_test_dataset: SequenceDataset = torch.load(TEST_FILE_NAME)
 
 
 class ImageDataset(Dataset):
@@ -106,16 +114,31 @@ class ImageDataset(Dataset):
         return image
 
 image_dataset = ImageDataset(sequence_dataset)
+image_test_dataset = ImageDataset(sequence_test_dataset)
 
-data_loader = DataLoader(
+# image_dataset.images /= image_dataset.images.max()
+# image_test_dataset.images /= image_test_dataset.images.max()
+
+image_dataset.images /= 255
+image_test_dataset.images /= 255
+
+
+train_loader = DataLoader(
     image_dataset,
     batch_size=32,
     shuffle=True,
 )
 
+test_loader = DataLoader(
+    image_test_dataset,
+    batch_size=32,
+    shuffle=False,
+)
+
 # %%
 import matplotlib.pyplot as plt
 import torch.nn as nn
+
 
 class Autoencoder(nn.Module):
     def __init__(
@@ -124,7 +147,7 @@ class Autoencoder(nn.Module):
         super(Autoencoder, self).__init__()
         self.encoder = nn.Sequential(
             nn.Conv2d(1, hidden_feature_dim, kernel_size=3, stride=1, padding=1),
-            # nn.ReLU(),
+            nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(
                 hidden_feature_dim,
@@ -133,7 +156,7 @@ class Autoencoder(nn.Module):
                 stride=1,
                 padding=1,
             ),
-            # nn.ReLU(),
+            nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
         self.decoder = nn.Sequential(
@@ -145,7 +168,7 @@ class Autoencoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            # nn.ReLU(),
+            nn.ReLU(),
             nn.ConvTranspose2d(
                 hidden_feature_dim,
                 1,
@@ -154,7 +177,9 @@ class Autoencoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
+            nn.Sigmoid(),
         )
+
 
     def forward(self, x):
         x = self.encoder(x)
@@ -172,6 +197,7 @@ def train(model, train_loader, criterion, optimizer):
         loss = criterion(input, output)
         optimizer.zero_grad()
         loss.backward()
+        optimizer.step()
 
         total_loss += loss.item()
 
@@ -207,9 +233,14 @@ model = Autoencoder(
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
 
-num_epochs = 5
-for i, epoch in tqdm(enumerate(range(num_epochs))):
-    train_loss = train(model, data_loader, criterion, optimizer)
-    test_loss = test(model, data_loader, criterion)
+initial_train_loss = test(model, train_loader, criterion)
+print(f"{initial_train_loss=}")
+initial_test_loss = test(model, test_loader, criterion)
+print(f"{initial_test_loss=}")
 
-    print(f"Epoch {i}: Train loss {train_loss}, Test Loss {test_loss}")
+num_epochs = 4
+for i, epoch in tqdm(enumerate(range(num_epochs))):
+    train_loss = train(model, train_loader, criterion, optimizer)
+    test_loss = test(model, test_loader, criterion)
+
+    print(f"Epoch {i+1}: Train loss {train_loss}, Test Loss {test_loss}")
