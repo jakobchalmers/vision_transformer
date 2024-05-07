@@ -105,22 +105,23 @@ class ImageDataset(Dataset):
     def __init__(self, sequence_dataset):
         sequences = sequence_dataset.sequences
         self.images: torch.Tensor = sequences.view(-1, *sequences.shape[2:])
-    
+
     def __len__(self):
         return self.images.shape[0]
-    
+
     def __getitem__(self, index):
         image = self.images[index].float()
         return image
 
+
 image_dataset = ImageDataset(sequence_dataset)
 image_test_dataset = ImageDataset(sequence_test_dataset)
 
-# image_dataset.images /= image_dataset.images.max()
-# image_test_dataset.images /= image_test_dataset.images.max()
+image_dataset.images /= image_dataset.images.max()
+image_test_dataset.images /= image_test_dataset.images.max()
 
-image_dataset.images /= 255
-image_test_dataset.images /= 255
+# image_dataset.images /= 255
+# image_test_dataset.images /= 255
 
 
 train_loader = DataLoader(
@@ -135,56 +136,134 @@ test_loader = DataLoader(
     shuffle=False,
 )
 
+for data in test_loader:
+    flat = data.view(data.shape[0], -1)
+    sorted = torch.argsort(flat, dim=1, descending=True)
+    print(flat[:, sorted[:10]])
+
 # %%
 import matplotlib.pyplot as plt
 import torch.nn as nn
 
+class PrintLayer(nn.Module):
+    def __init__(self, identifier: str):
+        super(PrintLayer, self).__init__()
+        self.has_printed = False
+        self.identifier = identifier
+
+    def forward(self, x):
+        if not self.has_printed:
+            print(f"PrintLayer\n\t{self.identifier}::Shape:", x.shape)
+            self.has_printed = True
+        return x
+
 
 class Autoencoder(nn.Module):
     def __init__(
-        self, image_height, image_width, hidden_feature_dim, latent_feature_dim
+        self,
+        image_height,
+        image_width,
+        hidden_feature_dim_1,
+        hidden_feature_dim_2,
+        hidden_feature_dim_3,
+        latent_dim,
     ):
         super(Autoencoder, self).__init__()
+
+        kernel_size = 3
+        activation = nn.LeakyReLU()
+        # dim: batch x 1 x 64 x 64
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, hidden_feature_dim, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            PrintLayer(identifier="input"),
             nn.Conv2d(
-                hidden_feature_dim,
-                latent_feature_dim,
-                kernel_size=3,
+                1, hidden_feature_dim_1, kernel_size=kernel_size, stride=1, padding=1
+            ),
+            activation,
+            # dim: 64x64
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # dim: 32x32
+
+
+            nn.Conv2d(
+                hidden_feature_dim_1,
+                hidden_feature_dim_2,
+                kernel_size=kernel_size,
                 stride=1,
                 padding=1,
             ),
-            nn.ReLU(),
+            activation,
+            # dim: 32x32
             nn.MaxPool2d(kernel_size=2, stride=2),
+            # dim: 16x16
+
+            nn.Conv2d(
+                hidden_feature_dim_2,
+                hidden_feature_dim_3,
+                kernel_size=kernel_size,
+                stride=1,
+                padding=1,
+            ),
+            activation,
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # dim: 8x8
+
+            # nn.Flatten(),
+            # nn.Linear(
+            #     8 * 8 * hidden_feature_dim_3, latent_dim
+            # ),  # TODO: don't hardcode
+
+            PrintLayer(identifier="latent")
         )
+
         self.decoder = nn.Sequential(
+            # nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
+            # nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
+
             nn.ConvTranspose2d(
-                latent_feature_dim,
-                hidden_feature_dim,
-                kernel_size=3,
+                hidden_feature_dim_3,
+                hidden_feature_dim_2,
+                kernel_size=kernel_size,
                 stride=2,
                 padding=1,
                 output_padding=1,
             ),
-            nn.ReLU(),
+            activation,
+
             nn.ConvTranspose2d(
-                hidden_feature_dim,
+                hidden_feature_dim_2,
+                hidden_feature_dim_1,
+                kernel_size=kernel_size,
+                stride=2,
+                padding=1,
+                output_padding=1,
+            ),
+            activation,
+
+            nn.ConvTranspose2d(
+                hidden_feature_dim_1,
                 1,
-                kernel_size=3,
+                kernel_size=kernel_size,
                 stride=2,
                 padding=1,
                 output_padding=1,
             ),
             nn.Sigmoid(),
+            PrintLayer(identifier="output"),
         )
-
 
     def forward(self, x):
         x = self.encoder(x)
         x = self.decoder(x)
+
         return x
+
+    def forward_testing(self, x):
+
+        x = self.encoder(x)
+        latent_space = x.clone()
+
+        x = self.decoder(x)
+        return latent_space, x
 
 
 def train(model, train_loader, criterion, optimizer):
@@ -215,20 +294,20 @@ def test(model, data_loader, criterion):
         loss = criterion(input, output)
         total_loss += loss.item()
 
-
     mean_loss = total_loss / len(data_loader)
     return mean_loss
 
 
-# %%
 from tqdm import tqdm
 import torch.optim as optim
 
 model = Autoencoder(
     image_height=IMAGE_SIZE,
     image_width=IMAGE_SIZE,
-    hidden_feature_dim=16,
-    latent_feature_dim=8,
+    hidden_feature_dim_1=4,
+    hidden_feature_dim_2=4,
+    hidden_feature_dim_3=4,
+    latent_dim=int(8 * 8 * 8 / 2),
 )
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -238,9 +317,40 @@ print(f"{initial_train_loss=}")
 initial_test_loss = test(model, test_loader, criterion)
 print(f"{initial_test_loss=}")
 
-num_epochs = 4
+num_epochs = 20
 for i, epoch in tqdm(enumerate(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
 
     print(f"Epoch {i+1}: Train loss {train_loss}, Test Loss {test_loss}")
+
+# %% plot
+
+for data in test_loader:
+    img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
+    print(img.shape)
+    plt.imshow(img)
+    plt.show()
+
+    latent_space, output_img = model.forward_testing(img.permute(2, 0, 1).unsqueeze(0))
+    # latent_img = latent_space.detach().permute(1, 2, 0)
+    # latent_img_normed = (latent_img - latent_img.min()) / (
+    #     latent_img.max() - latent_img.min()
+    # )
+    # plt.imshow(latent_img_normed[:, :, 0])
+    # plt.imshow(latent_img_normed[:, :, 1])
+    # plt.imshow(latent_img_normed[:, :, 2])
+
+    output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
+    # loss = criterion(img, output_img)
+    # print(loss.item())
+    print(output_img.shape)
+    plt.imshow(output_img)
+
+    # print(img.max())
+    # print(output_img.max())
+    # print(img - output_img)
+
+    # plt.imshow(img - output_img)
+
+    break
