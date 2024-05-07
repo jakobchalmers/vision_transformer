@@ -80,25 +80,27 @@ class SequenceDataset(Dataset):
 
 FILE_NAME = "particle_dataset.pth"
 TEST_FILE_NAME = "particle_test_dataset.pth"
-GENERATE = False
+GENERATE = True
 if GENERATE:
-    data_size = 500
+    data_size = 4000
     dataset: SequenceDataset = SequenceDataset(train_loader, data_size)
     torch.save(dataset, FILE_NAME)
 
-    test_data_size = 100
+    test_data_size = 1000
     test_dataset: SequenceDataset = SequenceDataset(train_loader, test_data_size)
     torch.save(test_dataset, TEST_FILE_NAME)
 
 # %%
+FILE_NAME = "particle_dataset_500.pth"
+TEST_FILE_NAME = "particle_test_dataset_100.pth"
 
-try:
-    sequence_dataset: SequenceDataset = dataset
-    sequence_test_dataset: SequenceDataset = test_dataset
-except:
-    print("Loading...")
-    sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
-    sequence_test_dataset: SequenceDataset = torch.load(TEST_FILE_NAME)
+# try:
+#     sequence_dataset: SequenceDataset = dataset
+#     sequence_test_dataset: SequenceDataset = test_dataset
+# except:
+print("Loading...")
+sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
+sequence_test_dataset: SequenceDataset = torch.load(TEST_FILE_NAME)
 
 
 class ImageDataset(Dataset):
@@ -117,8 +119,8 @@ class ImageDataset(Dataset):
 image_dataset = ImageDataset(sequence_dataset)
 image_test_dataset = ImageDataset(sequence_test_dataset)
 
-image_dataset.images /= image_dataset.images.max()
-image_test_dataset.images /= image_test_dataset.images.max()
+# image_dataset.images /= image_dataset.images.max()
+# image_test_dataset.images /= image_test_dataset.images.max()
 
 # image_dataset.images /= 255
 # image_test_dataset.images /= 255
@@ -136,14 +138,16 @@ test_loader = DataLoader(
     shuffle=False,
 )
 
-for data in test_loader:
-    flat = data.view(data.shape[0], -1)
-    sorted = torch.argsort(flat, dim=1, descending=True)
-    print(flat[:, sorted[:10]])
+# for data in test_loader:
+#     flat = data.view(data.shape[0], -1) # (32, 64 x 64 x 1)
+#     sorted = torch.argsort(flat, dim=1, descending=True)
+#     print(torch.max(data))
+#     print(flat[:, sorted[:10]])
 
 # %%
 import matplotlib.pyplot as plt
 import torch.nn as nn
+
 
 class PrintLayer(nn.Module):
     def __init__(self, identifier: str):
@@ -171,7 +175,8 @@ class Autoencoder(nn.Module):
         super(Autoencoder, self).__init__()
 
         kernel_size = 3
-        activation = nn.LeakyReLU()
+        # activation = nn.LeakyReLU()
+        activation = nn.SiLU()
         # dim: batch x 1 x 64 x 64
         self.encoder = nn.Sequential(
             PrintLayer(identifier="input"),
@@ -207,17 +212,21 @@ class Autoencoder(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
             # dim: 8x8
 
-            # nn.Flatten(),
-            # nn.Linear(
-            #     8 * 8 * hidden_feature_dim_3, latent_dim
-            # ),  # TODO: don't hardcode
+            nn.AvgPool2d(kernel_size=8),
+            nn.Flatten(start_dim=1),
+            PrintLayer(identifier="after flatten"),
 
-            PrintLayer(identifier="latent")
+            nn.Linear(hidden_feature_dim_3, latent_dim),
+            activation,
+            PrintLayer(identifier="latent"),
         )
 
         self.decoder = nn.Sequential(
-            # nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
-            # nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
+            nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
+            # nn.ConvTranspose1d(latent_dim, hidden_feature_dim_3, kernel_size=2),
+            activation,
+            nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
+            
 
             nn.ConvTranspose2d(
                 hidden_feature_dim_3,
@@ -247,7 +256,17 @@ class Autoencoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            nn.Sigmoid(),
+            # activation,
+
+            # nn.Conv2d(
+            #    in_channels=4,
+            #    out_channels=1,
+            #    kernel_size=3,
+            #    stride=1,
+            #    padding=1,
+            # ),
+            # nn.Sigmoid(),
+            
             PrintLayer(identifier="output"),
         )
 
@@ -304,10 +323,10 @@ import torch.optim as optim
 model = Autoencoder(
     image_height=IMAGE_SIZE,
     image_width=IMAGE_SIZE,
-    hidden_feature_dim_1=4,
-    hidden_feature_dim_2=4,
-    hidden_feature_dim_3=4,
-    latent_dim=int(8 * 8 * 8 / 2),
+    hidden_feature_dim_1=16,
+    hidden_feature_dim_2=32,
+    hidden_feature_dim_3=64,
+    latent_dim=32,
 )
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
