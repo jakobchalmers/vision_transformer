@@ -80,7 +80,7 @@ class SequenceDataset(Dataset):
 
 FILE_NAME = "particle_dataset.pth"
 TEST_FILE_NAME = "particle_test_dataset.pth"
-GENERATE = True
+GENERATE = False
 if GENERATE:
     data_size = 4000
     dataset: SequenceDataset = SequenceDataset(train_loader, data_size)
@@ -326,7 +326,7 @@ model = Autoencoder(
     hidden_feature_dim_1=16,
     hidden_feature_dim_2=32,
     hidden_feature_dim_3=64,
-    latent_dim=32,
+    latent_dim=3,
 )
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -347,29 +347,43 @@ for i, epoch in tqdm(enumerate(range(num_epochs))):
 
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
-    print(img.shape)
-    plt.imshow(img)
-    plt.show()
 
     latent_space, output_img = model.forward_testing(img.permute(2, 0, 1).unsqueeze(0))
-    # latent_img = latent_space.detach().permute(1, 2, 0)
-    # latent_img_normed = (latent_img - latent_img.min()) / (
-    #     latent_img.max() - latent_img.min()
-    # )
-    # plt.imshow(latent_img_normed[:, :, 0])
-    # plt.imshow(latent_img_normed[:, :, 1])
-    # plt.imshow(latent_img_normed[:, :, 2])
-
     output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
-    # loss = criterion(img, output_img)
-    # print(loss.item())
-    print(output_img.shape)
-    plt.imshow(output_img)
-
-    # print(img.max())
-    # print(output_img.max())
-    # print(img - output_img)
-
-    # plt.imshow(img - output_img)
+    figure = plt.figure()
+    subplot1 = figure.add_subplot(1, 2, 1)
+    subplot1.imshow(img)
+    subplot1.set_title('Original Image')
+    
+    subplot2 = figure.add_subplot(1, 2, 2)
+    subplot2.imshow(output_img)
+    subplot2.set_title('Output Image')
+    
+    plt.show()
 
     break
+
+# %%
+rec_iter = 1000
+for data in test_loader:
+    img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
+
+    input = img.permute(2, 0, 1).unsqueeze(0)
+
+    for i in range(rec_iter):
+        latent_space, output_img = model.forward_testing(input)
+        output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
+        input = output_img.permute(2, 0, 1).unsqueeze(0)
+    
+    figure = plt.figure()
+    subplot1 = figure.add_subplot(1, 2, 1)
+    subplot1.imshow(img)
+    subplot1.set_title('Original Image')
+
+    subplot2 = figure.add_subplot(1, 2, 2)
+    subplot2.imshow(output_img)
+    subplot2.set_title(f'Output Image after {i+1} iterations')
+
+    plt.show()
+    break
+        
