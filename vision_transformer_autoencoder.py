@@ -10,8 +10,11 @@ import numpy as np
 
 # %% Data Loading
 
-FILE_NAME = "data/particle_dataset_500.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+# FILE_NAME = "data/particle_dataset_500.pth"
+# TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+
+FILE_NAME = "data/particle_dataset_4000.pth"
+TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
@@ -135,9 +138,9 @@ class PositionalEncoding(nn.Module):
             num_patches, dim_embedding
         )  # -> (num_patches, dim_embedding)
         position = torch.arange(0, num_patches).unsqueeze(1)  # -> (num_patches, 1)
-        indicies = torch.arange(0, dim_embedding, 2)  # -> (dim_embedding//2)
+        indices = torch.arange(0, dim_embedding, 2)  # -> (dim_embedding//2)
         factor = torch.exp(
-            indicies * -(np.log(10000.0) / dim_embedding)
+            indices * -(np.log(10000.0) / dim_embedding)
         )  # -> (dim_embedding//2)
         positional_encoding[:, 0::2] = torch.sin(
             position * factor
@@ -152,7 +155,7 @@ class PositionalEncoding(nn.Module):
         )  # -> (1, num_patches, dim_embedding)
 
     def forward(self, x):
-        return x+ self.positional_encoding
+        return x + self.positional_encoding
 
 class ClassTokenGrabber(nn.Module):
     def __init__(self, num_patches: int, dim_embedding: int):
@@ -168,6 +171,7 @@ class VisionTransformerAutoencoder(nn.Module):
     def __init__(self, dim_embedding: int):
         super(VisionTransformerAutoencoder, self).__init__()
         patch_size = 32
+        # patch_size = 16
         image_size = 64
         num_patches = (image_size // patch_size) ** 2
         linear_input_dim = patch_size * patch_size * 1
@@ -188,6 +192,7 @@ class VisionTransformerAutoencoder(nn.Module):
             nn.TransformerEncoderLayer(
                 d_model=dim_embedding,
                 nhead=2,
+                # nhead=1,
                 dim_feedforward=2048,
                 dropout=0.1,
                 activation="gelu",
@@ -195,6 +200,7 @@ class VisionTransformerAutoencoder(nn.Module):
             ),
             num_layers=4,
         )
+
 
         self.class_token_grabber = ClassTokenGrabber(num_patches=num_patches, dim_embedding=dim_embedding)
 
@@ -205,8 +211,8 @@ class VisionTransformerAutoencoder(nn.Module):
         hidden_feature_dim_3 = 64
         kernel_size = 3
         self.decoder = nn.Sequential(
+            PrintLayer(identifier="latent"),
             nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
-            # nn.ConvTranspose1d(latent_dim, hidden_feature_dim_3, kernel_size=2),
             activation,
             nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
             
@@ -239,16 +245,6 @@ class VisionTransformerAutoencoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            # activation,
-
-            # nn.Conv2d(
-            #    in_channels=4,
-            #    out_channels=1,
-            #    kernel_size=3,
-            #    stride=1,
-            #    padding=1,
-            # ),
-            # nn.Sigmoid(),
             
             PrintLayer(identifier="output"),
         )
@@ -260,7 +256,7 @@ class VisionTransformerAutoencoder(nn.Module):
         x = self.decoder(x)
         return x
 
-# %% test on data
+# %% Plot untrained reconstruction ###############################################
 
 model = VisionTransformerAutoencoder(dim_embedding=4)
 
@@ -271,27 +267,30 @@ for batch in train_loader:
     plt.imshow(output[0, 0].detach().numpy())
     break
 
-# %% Training
+# %% Setup for training ###########################################################
 
 model = VisionTransformerAutoencoder(dim_embedding=4)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
-print(model)
+# print(model)
 
 initial_train_loss = test(model, train_loader, criterion)
 print(f"{initial_train_loss=}")
 initial_test_loss = test(model, test_loader, criterion)
 print(f"{initial_test_loss=}")
 
+last_epoch_number = 0
+
+# %% Train #########################################################################
 num_epochs = 20
-# %%
 for i, epoch in tqdm(enumerate(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
     
-    print(f"Epoch {i+1+20}: Train loss {train_loss}, Test Loss {test_loss}")
+    print(f"Epoch {i+1+last_epoch_number}: Train loss {train_loss}, Test Loss {test_loss}")
+last_epoch_number += i+1
 
-# %% plot
+# %% Plot #########################################################################
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
     print(img.shape)
