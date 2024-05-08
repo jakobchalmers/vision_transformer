@@ -174,8 +174,8 @@ def test(model, data_loader, criterion):
 
 # %%
 
-FILE_NAME = "particle_dataset_500.pth"
-TEST_FILE_NAME = "particle_test_dataset_100.pth"
+FILE_NAME = "data/particle_dataset_500.pth"
+TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)

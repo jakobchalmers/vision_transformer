@@ -87,9 +87,8 @@ def main():
         sequential_images >> dt.FlipUD() >> dt.FlipDiagonal() >> dt.FlipLR()
     )
 
-        
-    FILE_NAME = "particle_dataset.pth"
-    TEST_FILE_NAME = "particle_test_dataset.pth"
+    FILE_NAME = "data/particle_dataset.pth"
+    TEST_FILE_NAME = "data/particle_test_dataset.pth"
 
     print(FILE_NAME, TEST_FILE_NAME)
     input("Sure?")
