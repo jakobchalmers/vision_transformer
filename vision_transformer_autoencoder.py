@@ -7,11 +7,12 @@ import torch.optim as optim
 from tqdm import tqdm
 from data_generation import SequenceDataset, ImageDataset
 import numpy as np
+import sys
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using {device=}")
 
 # %% Data Loading
-
-# FILE_NAME = "data/particle_dataset_500.pth"
-# TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
 FILE_NAME = "data/particle_dataset_500.pth"
 TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
@@ -38,13 +39,20 @@ test_loader = DataLoader(
 )
 print("Done")
 
+# %% Functions ##############################################################
 
-# %% Functions
-def train(model, train_loader, criterion, optimizer):
+try:
+    del sys.modules["modules"]
+    from modules import PrintLayer, ConvolutionalDecoder
+except KeyError:
+    from modules import PrintLayer, ConvolutionalDecoder
+
+
+def train(model, train_loader, criterion, optimizer, device):
     model.train()
     total_loss = 0
     for input in train_loader:
-        input: torch.Tensor = input.permute(0, 3, 1, 2)
+        input: torch.Tensor = input.permute(0, 3, 1, 2).to(device)
         output = model(input)
 
         loss = criterion(input, output)
@@ -58,11 +66,11 @@ def train(model, train_loader, criterion, optimizer):
     return mean_loss
 
 
-def test(model, data_loader, criterion):
+def test(model, data_loader, criterion, device):
     model.train()
     total_loss = 0
     for input in data_loader:
-        input: torch.Tensor = input.permute(0, 3, 1, 2)
+        input: torch.Tensor = input.permute(0, 3, 1, 2).to(device)
         output = model(input)
 
         loss = criterion(input, output)
@@ -82,39 +90,10 @@ class Patchify(nn.Module):
         self.unfold = nn.Unfold(kernel_size=patch_size, stride=patch_size)
 
     def forward(self, x):
-        batch_size, channels, height, width = x.shape
         x = self.unfold(x)  # -> (batch_size, channels*batch_size**2, num_patches)
 
         # x = x.view(batch_size, -1,channels*self.patch_size**2) # -> (batch_size, num_patches, patch_size**2)
         x = x.permute(0, 2, 1)
-        return x
-
-
-####
-# testing
-# img = torch.rand(1,1,8,8)
-# patcher = Patchify(2)
-# patches = patcher(img)
-# print(patches.shape)
-
-# fig, ax = plt.subplots(1, 2)
-
-# ax[0].imshow(img[0,0].detach().numpy(), vmin=0, vmax=1)
-# ax[1].imshow(patches[0,0,0].detach().numpy(), vmin=0, vmax=1)
-# plt.show()
-####
-
-
-class PrintLayer(nn.Module):
-    def __init__(self, identifier: str):
-        super(PrintLayer, self).__init__()
-        self.has_printed = False
-        self.identifier = identifier
-
-    def forward(self, x):
-        if not self.has_printed:
-            print(f"PrintLayer\n\t{self.identifier}::Shape:", x.shape)
-            self.has_printed = True
         return x
 
 
@@ -132,16 +111,16 @@ class ClassToken(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, dim_embedding: int, num_patches: int):
+    def __init__(self, dim_embedding: int, num_patches: int, device):
         super(PositionalEncoding, self).__init__()
         self.dim_embedding = dim_embedding
         self.num_patches = num_patches
         # dropout ??
         positional_encoding = torch.zeros(
             num_patches, dim_embedding
-        )  # -> (num_patches, dim_embedding)
-        position = torch.arange(0, num_patches).unsqueeze(1)  # -> (num_patches, 1)
-        indices = torch.arange(0, dim_embedding, 2)  # -> (dim_embedding//2)
+        ).to(device)  # -> (num_patches, dim_embedding)
+        position = torch.arange(0, num_patches).unsqueeze(1).to(device)  # -> (num_patches, 1)
+        indices = torch.arange(0, dim_embedding, 2).to(device)  # -> (dim_embedding//2)
         factor = torch.exp(
             indices * -(np.log(10000.0) / dim_embedding)
         )  # -> (dim_embedding//2)
@@ -178,10 +157,10 @@ class TransformerEncoderLayer(nn.Module):
         nhead: int,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
-        activation: str | nn.Module = "gelu",
+        activation = nn.GELU(),
     ):
         super(TransformerEncoderLayer, self).__init__()
-        self.activation = nn.GELU() if activation == "gelu" else activation
+        self.activation = activation
 
         self.norm1 = nn.LayerNorm(dim_embedding)
         # self.linear_query = nn.Linear(dim_embedding, dim_embedding)
@@ -217,17 +196,24 @@ class TransformerEncoderLayer(nn.Module):
     def attention_gate_output(self, x):
         x_1 = x
         x_2 = self.norm1(x)
-        x_2 = self.multihead_attention(
-            self.linear_query(x_2), self.linear_key(x_2), self.linear_value(x_2)
-        )[
+
+        # x_2 = self.multihead_attention(
+        #     self.linear_query(x_2), self.linear_key(x_2), self.linear_value(x_2)
+        # )[
+        #     0
+        # ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
+
+        x_2 = self.multihead_attention(x_2, x_2, x_2)[
             0
         ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
+
         return x_2
 
 
 class VisionTransformerAutoencoder(nn.Module):
-    def __init__(self, dim_embedding: int):
+    def __init__(self, dim_embedding: int, device):
         super(VisionTransformerAutoencoder, self).__init__()
+        self.device = device
         patch_size = 32
         # patch_size = 16
         image_size = 64
@@ -243,7 +229,7 @@ class VisionTransformerAutoencoder(nn.Module):
             ClassToken(dim_embedding=dim_embedding),
             PrintLayer(identifier="stacked"),
             PositionalEncoding(
-                dim_embedding=dim_embedding, num_patches=num_patches + 1
+                dim_embedding=dim_embedding, num_patches=num_patches + 1, device=device
             ),
             PrintLayer(identifier="positional"),
         )
@@ -260,13 +246,8 @@ class VisionTransformerAutoencoder(nn.Module):
         #     ),
         #     num_layers=8,
         # )
-        # self.encoder = TransformerEncoderLayer(
-        #     dim_embedding=dim_embedding,
-        #     nhead=2,
-        #     dim_feedforward=2048,
-        #     dropout=0.1,
-        #     activation="gelu",
-        # )
+
+        num_transformer_encoder_layers = 4
         self.encoder = nn.Sequential(
             *(
                 TransformerEncoderLayer(
@@ -274,9 +255,9 @@ class VisionTransformerAutoencoder(nn.Module):
                     nhead=2,
                     dim_feedforward=2048,
                     dropout=0.1,
-                    activation="gelu",
+                    activation=nn.GELU(),
                 )
-                for _ in range(4)
+                for _ in range(num_transformer_encoder_layers)
             )
         )
 
@@ -320,9 +301,17 @@ class VisionTransformerAutoencoder(nn.Module):
                 stride=2,
                 padding=1,
                 output_padding=1,
-            ),
-            PrintLayer(identifier="output"),
+        ),
+        PrintLayer(identifier="output"),
         )
+
+        # self.decoder = ConvolutionalDecoder(
+        #     latent_image_size=16,
+        #     latent_dim=dim_embedding,
+        #     hidden_feature_dim_1=16,
+        #     hidden_feature_dim_2=32,
+        #     hidden_feature_dim_3=64,
+        # )
 
     def forward(self, x):
         x = self.embedding(x)
@@ -342,36 +331,24 @@ class VisionTransformerAutoencoder(nn.Module):
         return x
 
 
-# %% Plot untrained reconstruction ###############################################
-
-model = VisionTransformerAutoencoder(dim_embedding=4)
-
-for batch in train_loader:
-    input = batch.permute(0, 3, 1, 2)
-    output = model(input)
-    print(output.shape)
-    plt.imshow(output[0, 0].detach().numpy())
-    break
-
 # %% Setup for training ###########################################################
 
-model = VisionTransformerAutoencoder(dim_embedding=4)
+gpu_model = VisionTransformerAutoencoder(dim_embedding=4, device=device).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
-# print(model)
+optimizer = optim.Adam(gpu_model.parameters(), lr=0.01)
 
-initial_train_loss = test(model, train_loader, criterion)
+initial_train_loss = test(gpu_model, train_loader, criterion, device)
 print(f"{initial_train_loss=}")
-initial_test_loss = test(model, test_loader, criterion)
+initial_test_loss = test(gpu_model, test_loader, criterion, device)
 print(f"{initial_test_loss=}")
 
 last_epoch_number = 0
 
 # %% Train #########################################################################
-num_epochs = 20
+num_epochs = 30
 for i, epoch in tqdm(enumerate(range(num_epochs))):
-    train_loss = train(model, train_loader, criterion, optimizer)
-    test_loss = test(model, test_loader, criterion)
+    train_loss = train(gpu_model, train_loader, criterion, optimizer, device)
+    test_loss = test(gpu_model, test_loader, criterion, device)
 
     print(
         f"Epoch {i+1+last_epoch_number}: Train loss {train_loss}, Test Loss {test_loss}"
@@ -382,7 +359,7 @@ last_epoch_number += i + 1
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
     print(img.shape)
-    output_img = model.forward(img.permute(2, 0, 1).unsqueeze(0))
+    output_img = gpu_model(img.permute(2, 0, 1).unsqueeze(0).to(device)).cpu()
     output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
     figure = plt.figure()
     subplot1 = figure.add_subplot(1, 2, 1)
@@ -402,11 +379,8 @@ for data in test_loader:
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
     print(img.shape)
-    attention_gate_output = (
-        model.attention_gate_output(img.permute(2, 0, 1).unsqueeze(0))
-        .detach()
-        .squeeze(0)
-    )
+    
+    attention_gate_output = gpu_model.attention_gate_output(img.permute(2, 0, 1).unsqueeze(0).to(device)).detach().squeeze(0).cpu()
     print(attention_gate_output.shape)
     out_img_mean = attention_gate_output.mean(dim=1)[:-1].reshape(2, 2)
     out_img_ch1 = attention_gate_output[:, 0][:-1].reshape(2, 2)
@@ -448,20 +422,4 @@ for data in test_loader:
 
     plt.show()
 
-    # upscaled_attention = nn.functional.interpolate(attention_gate_output, size=img.shape[2:], mode='bilinear', align_corners=False)
-    # overlay = img + upscaled_attention.squeeze(0).permute(1, 2, 0)
-    # figure = plt.figure()
-    # subplot1 = figure.add_subplot(1, 3, 1)
-    # subplot1.imshow(img)
-    # subplot1.set_title("Original Image")
-
-    # subplot2 = figure.add_subplot(1, 3, 2)
-    # subplot2.imshow(attention_gate_output.squeeze(0).permute(1, 2, 0))
-    # subplot2.set_title("Attention Gate Output")
-
-    # subplot3 = figure.add_subplot(1, 3, 3)
-    # subplot3.imshow(overlay)
-    # subplot3.set_title("Overlay")
-
-    # plt.show()
     break
