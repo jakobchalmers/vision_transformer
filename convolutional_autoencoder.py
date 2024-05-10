@@ -7,6 +7,8 @@ from tqdm import tqdm
 from data_generation import SequenceDataset, ImageDataset
 import sys
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 # %%
 
 FILE_NAME = "data/particle_dataset_500.pth"
@@ -74,10 +76,15 @@ class ConvolutionalAutoencoder(nn.Module):
             kernel_size=kernel_size,
         )
 
+        self.forward_pass = nn.Sequential(
+            self.encoder,
+            PrintLayer("Latent Space"),
+            self.decoder
+            )
+        
+
     def forward(self, x):
-        x = self.encoder(x)
-        x = self.decoder(x)
-        return x
+        return self.forward_pass(x)
 
     def forward_testing(self, x):
 
@@ -92,6 +99,7 @@ def train(model, train_loader, criterion, optimizer):
     model.train()
     total_loss = 0
     for input in train_loader:
+        input = input.to(device)
         input: torch.Tensor = input.permute(0, 3, 1, 2)
         output = model(input)
 
@@ -110,6 +118,7 @@ def test(model, data_loader, criterion):
     model.train()
     total_loss = 0
     for input in data_loader:
+        input = input.to(device)
         input: torch.Tensor = input.permute(0, 3, 1, 2)
         output = model(input)
 
@@ -128,8 +137,8 @@ model = ConvolutionalAutoencoder(
     hidden_feature_dim_1=16,
     hidden_feature_dim_2=32,
     hidden_feature_dim_3=64,
-    latent_dim=4,
-)
+    latent_dim=2,
+).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
 
@@ -139,8 +148,8 @@ initial_test_loss = test(model, test_loader, criterion)
 print(f"{initial_test_loss=}")
 
 # %% Training
-num_epochs = 20
-for i, epoch in tqdm(enumerate(range(num_epochs))):
+num_epochs = 10
+for i, epoch in enumerate(tqdm(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
 
@@ -189,4 +198,64 @@ for data in test_loader:
 
     plt.show()
     break
+
+# %% Plotting 2
+
+latent_dimensions = [1,2,3]
+final_loss_thresholds = [10, 15, 10]
+
+models = []
+final_losses = []
+for l,latent_dimension in enumerate(latent_dimensions):
+    while True:
+        model = ConvolutionalAutoencoder(
+            hidden_feature_dim_1=16,
+            hidden_feature_dim_2=32,
+            hidden_feature_dim_3=64,
+            latent_dim=latent_dimension,
+        )
+
+        criterion = nn.MSELoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
+
+        num_epochs = 5
+    
+        for i, epoch in enumerate(tqdm(range(num_epochs))):
+            train_loss = train(model, train_loader, criterion, optimizer)
+            print(f"Epoch {i+1}: Train loss {train_loss}")
+        test_loss = test(model, test_loader, criterion)
+        if test_loss < final_loss_thresholds[l]:
+            break
+
+    print(f"{test_loss=}")
+
+    models.append(model)
+    final_losses.append(test_loss)
+# %%
+for data in test_loader:
+    num_inputs = 5
+    input_images = data[torch.randint(low=0, high=31, size=(num_inputs,)), :, :, :]
+    
+    model_output_image_sets = []
+    for i, model in enumerate(models):
+        out_images = model(input_images.permute(0, 3, 1, 2))
+        model_output_image_sets.append(out_images)
+    
+    figure = plt.figure()
+    for i in range(num_inputs):
+        subplot = figure.add_subplot(num_inputs, len(models)+1, i*(len(models)+1)+1)
+        subplot.imshow(input_images[i])
+    
+    for i in range(num_inputs):
+        for j in range(len(models)):
+            subplot = figure.add_subplot(num_inputs, len(models)+1, i*(len(models)+1)+j+2)
+            subplot.imshow(model_output_image_sets[j][i].detach().permute(1, 2, 0))
+          
+    
+    plt.show()
+    break
+
+
+
+
         
