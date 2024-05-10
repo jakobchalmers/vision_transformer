@@ -13,8 +13,8 @@ import numpy as np
 # FILE_NAME = "data/particle_dataset_500.pth"
 # TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
-FILE_NAME = "data/particle_dataset_4000.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
+FILE_NAME = "data/particle_dataset_500.pth"
+TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
@@ -37,6 +37,7 @@ test_loader = DataLoader(
     shuffle=False,
 )
 print("Done")
+
 
 # %% Functions
 def train(model, train_loader, criterion, optimizer):
@@ -70,7 +71,9 @@ def test(model, data_loader, criterion):
     mean_loss = total_loss / len(data_loader)
     return mean_loss
 
+
 # %% Modules
+
 
 class Patchify(nn.Module):
     def __init__(self, patch_size: int):
@@ -157,6 +160,7 @@ class PositionalEncoding(nn.Module):
     def forward(self, x):
         return x + self.positional_encoding
 
+
 class ClassTokenGrabber(nn.Module):
     def __init__(self, num_patches: int, dim_embedding: int):
         super(ClassTokenGrabber, self).__init__()
@@ -165,6 +169,60 @@ class ClassTokenGrabber(nn.Module):
 
     def forward(self, x):
         return x[:, -1, :]  # -> (batch_size, dim_embedding)
+
+
+class TransformerEncoderLayer(nn.Module):
+    def __init__(
+        self,
+        dim_embedding: int,
+        nhead: int,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+        activation: str | nn.Module = "gelu",
+    ):
+        super(TransformerEncoderLayer, self).__init__()
+        self.activation = nn.GELU() if activation == "gelu" else activation
+
+        self.norm1 = nn.LayerNorm(dim_embedding)
+        # self.linear_query = nn.Linear(dim_embedding, dim_embedding)
+        # self.linear_key = nn.Linear(dim_embedding, dim_embedding)
+        # self.linear_value = nn.Linear(dim_embedding, dim_embedding)
+        self.multihead_attention = nn.MultiheadAttention(
+            dim_embedding, nhead, dropout=dropout
+        )
+        self.norm2 = nn.LayerNorm(dim_embedding)
+        self.mlp = nn.Sequential(
+            nn.Linear(dim_embedding, dim_feedforward),
+            self.activation,
+            nn.Linear(dim_feedforward, dim_embedding),
+        )
+
+    def forward(self, x):
+        x_1 = x
+        x_2 = self.norm1(x)
+        x_2 = self.multihead_attention(x_2, x_2, x_2)[
+            0
+        ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
+
+        # x_2 = self.multihead_attention(
+        #     self.linear_query(x_2), self.linear_key(x_2), self.linear_value(x_2)
+        # )[0] # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
+
+        x_3 = x_1 + x_2
+        x_4 = self.norm2(x_3)
+        x_4 = self.mlp(x_4)
+        x = x_3 + x_4
+        return x
+
+    def attention_gate_output(self, x):
+        x_1 = x
+        x_2 = self.norm1(x)
+        x_2 = self.multihead_attention(
+            self.linear_query(x_2), self.linear_key(x_2), self.linear_value(x_2)
+        )[
+            0
+        ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
+        return x_2
 
 
 class VisionTransformerAutoencoder(nn.Module):
@@ -184,25 +242,47 @@ class VisionTransformerAutoencoder(nn.Module):
             PrintLayer(identifier="linear"),
             ClassToken(dim_embedding=dim_embedding),
             PrintLayer(identifier="stacked"),
-            PositionalEncoding(dim_embedding=dim_embedding, num_patches=num_patches+1),
+            PositionalEncoding(
+                dim_embedding=dim_embedding, num_patches=num_patches + 1
+            ),
             PrintLayer(identifier="positional"),
         )
 
-        self.encoder = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(
-                d_model=dim_embedding,
-                nhead=2,
-                # nhead=1,
-                dim_feedforward=2048,
-                dropout=0.1,
-                activation="gelu",
-                norm_first=True,
-            ),
-            num_layers=4,
+        # self.encoder = nn.TransformerEncoder(
+        #     nn.TransformerEncoderLayer(
+        #         d_model=dim_embedding,
+        #         nhead=2,
+        #         # nhead=1,
+        #         dim_feedforward=2048,
+        #         dropout=0.1,
+        #         activation="gelu",
+        #         norm_first=True,
+        #     ),
+        #     num_layers=8,
+        # )
+        # self.encoder = TransformerEncoderLayer(
+        #     dim_embedding=dim_embedding,
+        #     nhead=2,
+        #     dim_feedforward=2048,
+        #     dropout=0.1,
+        #     activation="gelu",
+        # )
+        self.encoder = nn.Sequential(
+            *(
+                TransformerEncoderLayer(
+                    dim_embedding=dim_embedding,
+                    nhead=2,
+                    dim_feedforward=2048,
+                    dropout=0.1,
+                    activation="gelu",
+                )
+                for _ in range(4)
+            )
         )
 
-
-        self.class_token_grabber = ClassTokenGrabber(num_patches=num_patches, dim_embedding=dim_embedding)
+        self.class_token_grabber = ClassTokenGrabber(
+            num_patches=num_patches, dim_embedding=dim_embedding
+        )
 
         activation = nn.SiLU()
         latent_dim = dim_embedding
@@ -215,8 +295,6 @@ class VisionTransformerAutoencoder(nn.Module):
             nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
             activation,
             nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
-            
-
             nn.ConvTranspose2d(
                 hidden_feature_dim_3,
                 hidden_feature_dim_2,
@@ -226,7 +304,6 @@ class VisionTransformerAutoencoder(nn.Module):
                 output_padding=1,
             ),
             activation,
-
             nn.ConvTranspose2d(
                 hidden_feature_dim_2,
                 hidden_feature_dim_1,
@@ -236,7 +313,6 @@ class VisionTransformerAutoencoder(nn.Module):
                 output_padding=1,
             ),
             activation,
-
             nn.ConvTranspose2d(
                 hidden_feature_dim_1,
                 1,
@@ -245,7 +321,6 @@ class VisionTransformerAutoencoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            
             PrintLayer(identifier="output"),
         )
 
@@ -255,6 +330,17 @@ class VisionTransformerAutoencoder(nn.Module):
         x = self.class_token_grabber(x)
         x = self.decoder(x)
         return x
+
+    def attention_gate_output(self, x):
+        x = self.embedding(x)
+        number_of_layers = len(self.encoder)
+        for i, layer in enumerate(self.encoder):
+            if i == number_of_layers - 1:
+                x = layer.attention_gate_output(x)
+                break
+            x = layer(x)
+        return x
+
 
 # %% Plot untrained reconstruction ###############################################
 
@@ -286,9 +372,11 @@ num_epochs = 20
 for i, epoch in tqdm(enumerate(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
-    
-    print(f"Epoch {i+1+last_epoch_number}: Train loss {train_loss}, Test Loss {test_loss}")
-last_epoch_number += i+1
+
+    print(
+        f"Epoch {i+1+last_epoch_number}: Train loss {train_loss}, Test Loss {test_loss}"
+    )
+last_epoch_number += i + 1
 
 # %% Plot #########################################################################
 for data in test_loader:
@@ -299,12 +387,81 @@ for data in test_loader:
     figure = plt.figure()
     subplot1 = figure.add_subplot(1, 2, 1)
     subplot1.imshow(img)
-    subplot1.set_title('Original Image')
-    
+    subplot1.set_title("Original Image")
+
     subplot2 = figure.add_subplot(1, 2, 2)
     subplot2.imshow(output_img)
-    subplot2.set_title('Output Image')
-    
+    subplot2.set_title("Output Image")
+
     plt.show()
 
+    break
+
+# %% Attention gate output ########################################################
+
+for data in test_loader:
+    img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
+    print(img.shape)
+    attention_gate_output = (
+        model.attention_gate_output(img.permute(2, 0, 1).unsqueeze(0))
+        .detach()
+        .squeeze(0)
+    )
+    print(attention_gate_output.shape)
+    out_img_mean = attention_gate_output.mean(dim=1)[:-1].reshape(2, 2)
+    out_img_ch1 = attention_gate_output[:, 0][:-1].reshape(2, 2)
+    out_img_ch2 = attention_gate_output[:, 1][:-1].reshape(2, 2)
+    out_img_ch3 = attention_gate_output[:, 2][:-1].reshape(2, 2)
+    out_img_ch4 = attention_gate_output[:, 3][:-1].reshape(2, 2)
+
+    print(out_img_mean.shape)
+    figure = plt.figure()
+    subplot1 = figure.add_subplot(1, 2, 1)
+    subplot1.imshow(img)
+    subplot1.set_title("Original Image")
+
+    subplot2 = figure.add_subplot(1, 2, 2)
+    subplot2.imshow(out_img_mean)
+    subplot2.set_title("Attention Gate Output")
+
+    plt.show()
+    min_val = attention_gate_output[:-1].min()
+    max_val = attention_gate_output[:-1].max()
+
+    figure = plt.figure()
+    subplot1 = figure.add_subplot(2, 2, 1)
+    subplot1.imshow(out_img_ch1, vmin=min_val, vmax=max_val)
+    subplot1.set_title("Channel 1")
+
+    subplot2 = figure.add_subplot(2, 2, 2)
+    subplot2.imshow(out_img_ch2, vmin=min_val, vmax=max_val)
+    subplot2.set_title("Channel 2")
+
+    subplot3 = figure.add_subplot(2, 2, 3)
+    subplot3.imshow(out_img_ch3, vmin=min_val, vmax=max_val)
+    subplot3.set_title("Channel 3")
+
+    subplot4 = figure.add_subplot(2, 2, 4)
+    subplot4.imshow(out_img_ch4, vmin=min_val, vmax=max_val)
+    subplot4.set_title("Channel 4")
+    figure.tight_layout()
+
+    plt.show()
+
+    # upscaled_attention = nn.functional.interpolate(attention_gate_output, size=img.shape[2:], mode='bilinear', align_corners=False)
+    # overlay = img + upscaled_attention.squeeze(0).permute(1, 2, 0)
+    # figure = plt.figure()
+    # subplot1 = figure.add_subplot(1, 3, 1)
+    # subplot1.imshow(img)
+    # subplot1.set_title("Original Image")
+
+    # subplot2 = figure.add_subplot(1, 3, 2)
+    # subplot2.imshow(attention_gate_output.squeeze(0).permute(1, 2, 0))
+    # subplot2.set_title("Attention Gate Output")
+
+    # subplot3 = figure.add_subplot(1, 3, 3)
+    # subplot3.imshow(overlay)
+    # subplot3.set_title("Overlay")
+
+    # plt.show()
     break
