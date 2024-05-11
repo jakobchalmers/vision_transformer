@@ -92,7 +92,6 @@ class Patchify(nn.Module):
     def forward(self, x):
         x = self.unfold(x)  # -> (batch_size, channels*batch_size**2, num_patches)
 
-        # x = x.view(batch_size, -1,channels*self.patch_size**2) # -> (batch_size, num_patches, patch_size**2)
         x = x.permute(0, 2, 1)
         return x
 
@@ -107,6 +106,7 @@ class ClassToken(nn.Module):
         batch_size, num_patches, patch_dim = x.shape
         class_token = self.class_token.expand(batch_size, -1, -1)
         x = torch.cat([class_token, x], dim=1)
+        assert torch.all(class_token == x[:, 0, :])
         return x
 
 
@@ -147,7 +147,8 @@ class ClassTokenGrabber(nn.Module):
         self.dim_embedding = dim_embedding
 
     def forward(self, x):
-        return x[:, -1, :]  # -> (batch_size, dim_embedding)
+        # Get class token (first element)
+        return x[:, 0, :]  # -> (batch_size, dim_embedding)
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -163,9 +164,6 @@ class TransformerEncoderLayer(nn.Module):
         self.activation = activation
 
         self.norm1 = nn.LayerNorm(dim_embedding)
-        # self.linear_query = nn.Linear(dim_embedding, dim_embedding)
-        # self.linear_key = nn.Linear(dim_embedding, dim_embedding)
-        # self.linear_value = nn.Linear(dim_embedding, dim_embedding)
         self.multihead_attention = nn.MultiheadAttention(
             dim_embedding, nhead, dropout=dropout
         )
@@ -183,10 +181,6 @@ class TransformerEncoderLayer(nn.Module):
             0
         ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
 
-        # x_2 = self.multihead_attention(
-        #     self.linear_query(x_2), self.linear_key(x_2), self.linear_value(x_2)
-        # )[0] # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
-
         x_3 = x_1 + x_2
         x_4 = self.norm2(x_3)
         x_4 = self.mlp(x_4)
@@ -197,11 +191,6 @@ class TransformerEncoderLayer(nn.Module):
         x_1 = x
         x_2 = self.norm1(x)
 
-        # x_2 = self.multihead_attention(
-        #     self.linear_query(x_2), self.linear_key(x_2), self.linear_value(x_2)
-        # )[
-        #     0
-        # ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
 
         x_2 = self.multihead_attention(x_2, x_2, x_2)[
             0
@@ -234,91 +223,90 @@ class VisionTransformerAutoencoder(nn.Module):
             PrintLayer(identifier="positional"),
         )
 
-        # self.encoder = nn.TransformerEncoder(
-        #     nn.TransformerEncoderLayer(
-        #         d_model=dim_embedding,
-        #         nhead=2,
-        #         # nhead=1,
-        #         dim_feedforward=2048,
-        #         dropout=0.1,
-        #         activation="gelu",
-        #         norm_first=True,
-        #     ),
-        #     num_layers=8,
-        # )
-
-        num_transformer_encoder_layers = 4
-        self.encoder = nn.Sequential(
-            *(
-                TransformerEncoderLayer(
-                    dim_embedding=dim_embedding,
-                    nhead=2,
-                    dim_feedforward=2048,
-                    dropout=0.1,
-                    activation=nn.GELU(),
-                )
-                for _ in range(num_transformer_encoder_layers)
-            )
+        self.encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(
+                d_model=dim_embedding,
+                nhead=12,
+                dim_feedforward=2048,
+                dropout=0.1,
+                activation="gelu",
+                norm_first=True,
+            ),
+            num_layers=7,
         )
+
+        # num_transformer_encoder_layers = 4
+        # self.encoder = nn.Sequential(
+        #     *(
+        #         TransformerEncoderLayer(
+        #             dim_embedding=dim_embedding,
+        #             nhead=2,
+        #             dim_feedforward=2048,
+        #             dropout=0.1,
+        #             activation=nn.GELU(),
+        #         )
+        #         for _ in range(num_transformer_encoder_layers)
+        #     )
+        # )
 
         self.class_token_grabber = ClassTokenGrabber(
             num_patches=num_patches, dim_embedding=dim_embedding
         )
-        # self.linear_embedding2latent = nn.Linear(dim_embedding, latent_dim)
+        self.linear_embedding2latent = nn.Linear(dim_embedding, latent_dim)
 
-        activation = nn.SiLU()
-        # latent_dim = dim_embedding
-        hidden_feature_dim_1 = 16
-        hidden_feature_dim_2 = 32
-        hidden_feature_dim_3 = 64
-        kernel_size = 3
-        self.decoder = nn.Sequential(
-            PrintLayer(identifier="latent"),
-            nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
-            activation,
-            nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
-            nn.ConvTranspose2d(
-                hidden_feature_dim_3,
-                hidden_feature_dim_2,
-                kernel_size=kernel_size,
-                stride=2,
-                padding=1,
-                output_padding=1,
-            ),
-            activation,
-            nn.ConvTranspose2d(
-                hidden_feature_dim_2,
-                hidden_feature_dim_1,
-                kernel_size=kernel_size,
-                stride=2,
-                padding=1,
-                output_padding=1,
-            ),
-            activation,
-            nn.ConvTranspose2d(
-                hidden_feature_dim_1,
-                1,
-                kernel_size=kernel_size,
-                stride=2,
-                padding=1,
-                output_padding=1,
-        ),
-        PrintLayer(identifier="output"),
-        )
-
-        # self.decoder = ConvolutionalDecoder(
-        #     latent_image_size=16,
-        #     latent_dim=dim_embedding,
-        #     hidden_feature_dim_1=16,
-        #     hidden_feature_dim_2=32,
-        #     hidden_feature_dim_3=64,
-        #     activation=nn.SiLU(),
+        # activation = nn.SiLU()
+        # # latent_dim = dim_embedding
+        # hidden_feature_dim_1 = 16
+        # hidden_feature_dim_2 = 32
+        # hidden_feature_dim_3 = 64
+        # kernel_size = 3
+        # self.decoder = nn.Sequential(
+        #     PrintLayer(identifier="latent"),
+        #     nn.Linear(latent_dim, 8 * 8 * hidden_feature_dim_3),
+        #     activation,
+        #     nn.Unflatten(dim=1, unflattened_size=(hidden_feature_dim_3, 8, 8)),
+        #     nn.ConvTranspose2d(
+        #         hidden_feature_dim_3,
+        #         hidden_feature_dim_2,
+        #         kernel_size=kernel_size,
+        #         stride=2,
+        #         padding=1,
+        #         output_padding=1,
+        #     ),
+        #     activation,
+        #     nn.ConvTranspose2d(
+        #         hidden_feature_dim_2,
+        #         hidden_feature_dim_1,
+        #         kernel_size=kernel_size,
+        #         stride=2,
+        #         padding=1,
+        #         output_padding=1,
+        #     ),
+        #     activation,
+        #     nn.ConvTranspose2d(
+        #         hidden_feature_dim_1,
+        #         1,
+        #         kernel_size=kernel_size,
+        #         stride=2,
+        #         padding=1,
+        #         output_padding=1,
+        # ),
+        # PrintLayer(identifier="output"),
         # )
+
+        self.decoder = ConvolutionalDecoder(
+            latent_image_size=16,
+            latent_dim=dim_embedding,
+            hidden_feature_dim_1=16,
+            hidden_feature_dim_2=32,
+            hidden_feature_dim_3=64,
+            activation=nn.SiLU(),
+        )
 
     def forward(self, x):
         x = self.embedding(x)
         x = self.encoder(x)
-        # x = self.linear_embedding2latent(x)
+        x = self.linear_embedding2latent(x)
         x = self.class_token_grabber(x)
         x = self.decoder(x)
         return x
@@ -336,7 +324,7 @@ class VisionTransformerAutoencoder(nn.Module):
 
 # %% Setup for training ###########################################################
 
-gpu_model = VisionTransformerAutoencoder(dim_embedding=4, latent_dim=4, device=device).to(device)
+gpu_model = VisionTransformerAutoencoder(dim_embedding=384, latent_dim=4, device=device).to(device)
 criterion = nn.MSELoss()
 # optimizer = optim.Adam(gpu_model.parameters(), lr=0.001)
 
@@ -350,12 +338,11 @@ learning_rate = 0.01
 
 # %% Train #########################################################################
 num_epochs = 10
-learning_rate = 0.001
 for i, epoch in tqdm(enumerate(range(num_epochs))):
     optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
     train_loss = train(gpu_model, train_loader, criterion, optimizer, device)
     test_loss = test(gpu_model, test_loader, criterion, device)
-    learning_rate *= 0.9
+    # learning_rate *= 0.9
 
     print(
         f"Epoch {i+1+last_epoch_number}: Train loss {train_loss}, Test Loss {test_loss}"
