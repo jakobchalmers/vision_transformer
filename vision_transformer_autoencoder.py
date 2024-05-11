@@ -211,7 +211,7 @@ class TransformerEncoderLayer(nn.Module):
 
 
 class VisionTransformerAutoencoder(nn.Module):
-    def __init__(self, dim_embedding: int, device):
+    def __init__(self, dim_embedding: int, latent_dim, device):
         super(VisionTransformerAutoencoder, self).__init__()
         self.device = device
         patch_size = 32
@@ -264,9 +264,10 @@ class VisionTransformerAutoencoder(nn.Module):
         self.class_token_grabber = ClassTokenGrabber(
             num_patches=num_patches, dim_embedding=dim_embedding
         )
+        # self.linear_embedding2latent = nn.Linear(dim_embedding, latent_dim)
 
         activation = nn.SiLU()
-        latent_dim = dim_embedding
+        # latent_dim = dim_embedding
         hidden_feature_dim_1 = 16
         hidden_feature_dim_2 = 32
         hidden_feature_dim_3 = 64
@@ -311,11 +312,13 @@ class VisionTransformerAutoencoder(nn.Module):
         #     hidden_feature_dim_1=16,
         #     hidden_feature_dim_2=32,
         #     hidden_feature_dim_3=64,
+        #     activation=nn.SiLU(),
         # )
 
     def forward(self, x):
         x = self.embedding(x)
         x = self.encoder(x)
+        # x = self.linear_embedding2latent(x)
         x = self.class_token_grabber(x)
         x = self.decoder(x)
         return x
@@ -333,9 +336,9 @@ class VisionTransformerAutoencoder(nn.Module):
 
 # %% Setup for training ###########################################################
 
-gpu_model = VisionTransformerAutoencoder(dim_embedding=4, device=device).to(device)
+gpu_model = VisionTransformerAutoencoder(dim_embedding=4, latent_dim=4, device=device).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(gpu_model.parameters(), lr=0.01)
+# optimizer = optim.Adam(gpu_model.parameters(), lr=0.001)
 
 initial_train_loss = test(gpu_model, train_loader, criterion, device)
 print(f"{initial_train_loss=}")
@@ -343,12 +346,16 @@ initial_test_loss = test(gpu_model, test_loader, criterion, device)
 print(f"{initial_test_loss=}")
 
 last_epoch_number = 0
+learning_rate = 0.01
 
 # %% Train #########################################################################
-num_epochs = 30
+num_epochs = 10
+learning_rate = 0.001
 for i, epoch in tqdm(enumerate(range(num_epochs))):
+    optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
     train_loss = train(gpu_model, train_loader, criterion, optimizer, device)
     test_loss = test(gpu_model, test_loader, criterion, device)
+    learning_rate *= 0.9
 
     print(
         f"Epoch {i+1+last_epoch_number}: Train loss {train_loss}, Test Loss {test_loss}"
