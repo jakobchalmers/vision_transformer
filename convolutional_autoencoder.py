@@ -46,54 +46,7 @@ try:
     del sys.modules["modules"]
     from modules import PrintLayer, ConvolutionalDecoder, ConvolutionalEncoder
 except KeyError:
-    from modules import PrintLayer, ConvolutionalDecoder, ConvolutionalEncoder
-
-
-class ConvolutionalAutoencoder(nn.Module):
-    def __init__(
-        self,
-        hidden_feature_dim_1,
-        hidden_feature_dim_2,
-        hidden_feature_dim_3,
-        latent_dim,
-    ):
-        super(ConvolutionalAutoencoder, self).__init__()
-
-        kernel_size = 3
-        activation = nn.SiLU()
-        # dim: batch x 1 x 64 x 64
-
-        self.encoder = ConvolutionalEncoder(
-            latent_dim=latent_dim,
-            hidden_feature_dim_1=hidden_feature_dim_1,
-            hidden_feature_dim_2=hidden_feature_dim_2,
-            hidden_feature_dim_3=hidden_feature_dim_3,
-            activation=activation,
-            kernel_size=kernel_size,
-        )
-        self.decoder = ConvolutionalDecoder(
-            latent_dim=latent_dim,
-            hidden_feature_dim_1=hidden_feature_dim_1,
-            hidden_feature_dim_2=hidden_feature_dim_2,
-            hidden_feature_dim_3=hidden_feature_dim_3,
-            activation=activation,
-            kernel_size=kernel_size,
-        )
-
-        self.forward_pass = nn.Sequential(
-            self.encoder, PrintLayer("Latent Space"), self.decoder
-        )
-
-    def forward(self, x):
-        return self.forward_pass(x)
-
-    def forward_testing(self, x):
-
-        x = self.encoder(x)
-        latent_space = x.clone()
-
-        x = self.decoder(x)
-        return latent_space, x
+    from modules import PrintLayer, ConvolutionalDecoder, ConvolutionalEncoder, ConvolutionalAutoencoder
 
 
 def train(model, train_loader, criterion, optimizer):
@@ -138,7 +91,7 @@ model = ConvolutionalAutoencoder(
     hidden_feature_dim_1=16,
     hidden_feature_dim_2=32,
     hidden_feature_dim_3=64,
-    latent_dim=2,
+    latent_dim=4,
 ).to(device)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=0.01)
@@ -161,7 +114,7 @@ for i, epoch in enumerate(tqdm(range(num_epochs))):
 for test_batch in test_loader:
     img = test_batch[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
 
-    latent_space, output_img = model.forward_testing(img.permute(2, 0, 1).unsqueeze(0))
+    output_img = model.forward(img.permute(2, 0, 1).unsqueeze(0).to(device)).cpu()
     output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
     figure = plt.figure()
     subplot1 = figure.add_subplot(1, 2, 1)
@@ -200,6 +153,8 @@ for test_batch in test_loader:
     plt.show()
     break
 
+# %% Save model
+torch.save(model, "models/convolutional_autoencoder.pth")
 # %% Plotting 2
 
 # latent_dimensions = [1, 2, 3, 4, 8, 16]
