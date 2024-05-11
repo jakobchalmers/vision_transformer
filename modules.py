@@ -37,9 +37,7 @@ class ConvolutionalEncoder(nn.Module):
                 padding=1,
             ),
             activation,
-
             nn.MaxPool2d(kernel_size=2, stride=2),
-
             nn.Conv2d(
                 hidden_feature_dim_1,
                 hidden_feature_dim_2,
@@ -48,9 +46,7 @@ class ConvolutionalEncoder(nn.Module):
                 padding=1,
             ),
             activation,
-
             nn.MaxPool2d(kernel_size=2, stride=2),
-
             nn.Conv2d(
                 hidden_feature_dim_2,
                 hidden_feature_dim_3,
@@ -59,7 +55,6 @@ class ConvolutionalEncoder(nn.Module):
                 padding=1,
             ),
             activation,
-
             nn.AvgPool2d(kernel_size=latent_image_size, stride=1),
             nn.Flatten(),
             nn.Linear(hidden_feature_dim_3, latent_dim),
@@ -93,7 +88,6 @@ class ConvolutionalDecoder(nn.Module):
                     latent_image_size,
                 ),
             ),
-
             nn.Conv2d(
                 hidden_feature_dim_3,
                 hidden_feature_dim_3,
@@ -102,7 +96,6 @@ class ConvolutionalDecoder(nn.Module):
                 padding=1,
             ),
             activation,
-
             nn.ConvTranspose2d(
                 hidden_feature_dim_3,
                 hidden_feature_dim_2,
@@ -111,7 +104,6 @@ class ConvolutionalDecoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-
             nn.Conv2d(
                 hidden_feature_dim_2,
                 hidden_feature_dim_2,
@@ -120,7 +112,6 @@ class ConvolutionalDecoder(nn.Module):
                 padding=1,
             ),
             activation,
-
             nn.ConvTranspose2d(
                 hidden_feature_dim_2,
                 hidden_feature_dim_1,
@@ -129,7 +120,6 @@ class ConvolutionalDecoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            
             nn.Conv2d(
                 hidden_feature_dim_1,
                 1,
@@ -141,3 +131,53 @@ class ConvolutionalDecoder(nn.Module):
 
     def forward(self, x):
         return self.decoder(x)
+
+
+class ConvolutionalAutoencoder(nn.Module):
+    def __init__(
+        self,
+        hidden_feature_dim_1,
+        hidden_feature_dim_2,
+        hidden_feature_dim_3,
+        latent_dim,
+    ):
+        super(ConvolutionalAutoencoder, self).__init__()
+
+        kernel_size = 3
+        activation = nn.SiLU()
+        # dim: batch x 1 x 64 x 64
+
+        self.encoder = ConvolutionalEncoder(
+            latent_dim=latent_dim,
+            hidden_feature_dim_1=hidden_feature_dim_1,
+            hidden_feature_dim_2=hidden_feature_dim_2,
+            hidden_feature_dim_3=hidden_feature_dim_3,
+            activation=activation,
+            kernel_size=kernel_size,
+        )
+        self.decoder = ConvolutionalDecoder(
+            latent_dim=latent_dim,
+            hidden_feature_dim_1=hidden_feature_dim_1,
+            hidden_feature_dim_2=hidden_feature_dim_2,
+            hidden_feature_dim_3=hidden_feature_dim_3,
+            activation=activation,
+            kernel_size=kernel_size,
+        )
+
+        self.forward_pass = nn.Sequential(
+            self.encoder, PrintLayer("Latent Space"), self.decoder
+        )
+
+    def forward(self, x):
+        return self.forward_pass(x)
+
+    def forward_testing(self, x):
+
+        x = self.encoder(x)
+        latent_space = x.clone()
+
+        x = self.decoder(x)
+        return latent_space, x
+    
+    def encode(self, x):
+        return self.encoder(x)
