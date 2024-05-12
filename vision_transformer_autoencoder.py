@@ -4,10 +4,13 @@ import torch.nn as nn
 import torch
 from torch.utils.data import DataLoader, Dataset
 import torch.optim as optim
+import torchvision
+from torchvision.models import VisionTransformer
 from tqdm import tqdm
 from data_generation import SequenceDataset, ImageDataset
 import numpy as np
 import sys
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using {device=}")
@@ -91,7 +94,6 @@ class Patchify(nn.Module):
 
     def forward(self, x):
         x = self.unfold(x)  # -> (batch_size, channels*batch_size**2, num_patches)
-
         x = x.permute(0, 2, 1)
         return x
 
@@ -116,10 +118,12 @@ class PositionalEncoding(nn.Module):
         self.dim_embedding = dim_embedding
         self.num_patches = num_patches
         # dropout ??
-        positional_encoding = torch.zeros(
-            num_patches, dim_embedding
-        ).to(device)  # -> (num_patches, dim_embedding)
-        position = torch.arange(0, num_patches).unsqueeze(1).to(device)  # -> (num_patches, 1)
+        positional_encoding = torch.zeros(num_patches, dim_embedding).to(
+            device
+        )  # -> (num_patches, dim_embedding)
+        position = (
+            torch.arange(0, num_patches).unsqueeze(1).to(device)
+        )  # -> (num_patches, 1)
         indices = torch.arange(0, dim_embedding, 2).to(device)  # -> (dim_embedding//2)
         factor = torch.exp(
             indices * -(np.log(10000.0) / dim_embedding)
@@ -158,7 +162,7 @@ class TransformerEncoderLayer(nn.Module):
         nhead: int,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
-        activation = nn.GELU(),
+        activation=nn.GELU(),
     ):
         super(TransformerEncoderLayer, self).__init__()
         self.activation = activation
@@ -191,7 +195,6 @@ class TransformerEncoderLayer(nn.Module):
         x_1 = x
         x_2 = self.norm1(x)
 
-
         x_2 = self.multihead_attention(x_2, x_2, x_2)[
             0
         ]  # 0 is the output, 1 is the attention weights -> (batch_size, num_patches, dim_embedding)
@@ -200,14 +203,22 @@ class TransformerEncoderLayer(nn.Module):
 
 
 class VisionTransformerAutoencoder(nn.Module):
-    def __init__(self, dim_embedding: int, latent_dim, device):
+    def __init__(self, dim_embedding: int, latent_dim: int, patch_size: int, device):
         super(VisionTransformerAutoencoder, self).__init__()
         self.device = device
-        patch_size = 32
-        # patch_size = 16
         image_size = 64
         num_patches = (image_size // patch_size) ** 2
         linear_input_dim = patch_size * patch_size * 1
+
+        # self.vision_tranformer = VisionTransformer(
+        #     image_size=image_size,
+        #     patch_size=patch_size,
+        #     num_layers=8,
+        #     hidden_dim=384,
+        #     mlp_dim=2048,
+        #     dropout=0,
+        #     attention_dropout=0,
+        # )
 
         self.embedding = nn.Sequential(
             PrintLayer(identifier="input"),
@@ -296,7 +307,7 @@ class VisionTransformerAutoencoder(nn.Module):
 
         self.decoder = ConvolutionalDecoder(
             latent_image_size=16,
-            latent_dim=dim_embedding,
+            latent_dim=latent_dim,
             hidden_feature_dim_1=16,
             hidden_feature_dim_2=32,
             hidden_feature_dim_3=64,
@@ -324,7 +335,9 @@ class VisionTransformerAutoencoder(nn.Module):
 
 # %% Setup for training ###########################################################
 
-gpu_model = VisionTransformerAutoencoder(dim_embedding=384, latent_dim=4, device=device).to(device)
+gpu_model = VisionTransformerAutoencoder(
+    dim_embedding=384, latent_dim=4, patch_size=8, device=device
+).to(device)
 criterion = nn.MSELoss()
 # optimizer = optim.Adam(gpu_model.parameters(), lr=0.001)
 
@@ -334,12 +347,12 @@ initial_test_loss = test(gpu_model, test_loader, criterion, device)
 print(f"{initial_test_loss=}")
 
 last_epoch_number = 0
-learning_rate = 0.01
+learning_rate = 0.0001
 
 # %% Train #########################################################################
-num_epochs = 10
+num_epochs = 2
+optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
 for i, epoch in tqdm(enumerate(range(num_epochs))):
-    optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
     train_loss = train(gpu_model, train_loader, criterion, optimizer, device)
     test_loss = test(gpu_model, test_loader, criterion, device)
     # learning_rate *= 0.9
@@ -373,8 +386,13 @@ for data in test_loader:
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
     print(img.shape)
-    
-    attention_gate_output = gpu_model.attention_gate_output(img.permute(2, 0, 1).unsqueeze(0).to(device)).detach().squeeze(0).cpu()
+
+    attention_gate_output = (
+        gpu_model.attention_gate_output(img.permute(2, 0, 1).unsqueeze(0).to(device))
+        .detach()
+        .squeeze(0)
+        .cpu()
+    )
     print(attention_gate_output.shape)
     out_img_mean = attention_gate_output.mean(dim=1)[:-1].reshape(2, 2)
     out_img_ch1 = attention_gate_output[:, 0][:-1].reshape(2, 2)
