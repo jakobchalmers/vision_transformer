@@ -72,7 +72,6 @@ class Time2Vector(nn.Module):
         super(Time2Vector, self).__init__()
         self.seq_len = seq_len
         self.latent_dim = latent_dim
-        d = 2
 
         self.linear_weights = nn.Parameter(
             torch.rand(seq_len)
@@ -97,7 +96,7 @@ class Time2Vector(nn.Module):
 
 
 class TransformerPredictor(nn.Module):
-    def __init__(self, latent_dim, seq_len):
+    def __init__(self, latent_dim, seq_len, num_transformer_layers):
         super(TransformerPredictor, self).__init__()
         time_encoding_dim = 2
         self.time2vector = Time2Vector(seq_len=seq_len, latent_dim=latent_dim)
@@ -109,32 +108,13 @@ class TransformerPredictor(nn.Module):
                 dropout=0.1,
                 activation="relu",
             ),
-            num_layers=4,
+            num_layers=num_transformer_layers,
         )
 
     def forward(self, x):
         x = self.time2vector(x)
         x = self.transformer(x)
         return x[:, -1, :]
-
-
-# train or load autoencoder
-
-# autoencoder = ConvolutionalAutoencoder(
-#     hidden_feature_dim_1=16,
-#     hidden_feature_dim_2=32,
-#     hidden_feature_dim_3=64,
-#     latent_dim=4,
-# ).to(device)
-convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
-    "models/convolutional_autoencoder.pth"
-)
-# transformer_autoencoder: TODO = torch.load("models/transformer_autoencoder.pth")
-
-model_convolution = TransformerPredictor(latent_dim=4, seq_len=9).to(device)
-model_transformer = TransformerPredictor(latent_dim=4, seq_len=9).to(device)
-criterion = nn.MSELoss()
-optimizer_transformer = torch.optim.Adam(model_transformer.parameters(), lr=0.01)
 
 
 # %% Train
@@ -183,62 +163,52 @@ def test(model, test_loader, criterion, autoencoder):
     return total_loss / len(test_loader)
 
 
-# %% Train Model with Convolutional Autoencoder
-optimizer_convolution = torch.optim.Adam(model_convolution.parameters(), lr=0.01)
-scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
-    optimizer_convolution, lr_lambda=lambda epoch: 0.95
-)
-
-epochs = 50
-for epoch in range(epochs):
-    train_loss = train(
-        model_convolution,
-        sequence_train_loader,
-        criterion,
-        optimizer_convolution,
-        convolutional_autoencoder,
+def train_for_epochs(predictor_model, autoencoder, epochs=50, learning_rate=0.01):
+    criterion = nn.MSELoss()
+    optimizer_convolution = torch.optim.Adam(
+        model_convolution.parameters(), lr=learning_rate
     )
-    test_loss = test(
-        model_convolution, sequence_test_loader, criterion, convolutional_autoencoder
-    )
-    print(f"Epoch {epoch} Loss: {train_loss} Test Loss: {test_loss}")
-    scheduler_convolution.step()
 
-# torch.save(model_convolution, "models/transformer_predictor_convolution.pth")
+    # scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
+    #     optimizer_convolution, lr_lambda=lambda epoch: 0.95
+    # )
 
-# %% Train Model with Transformer Autoencoder
+    losses = {"Train": [], "Test": []}
+    for epoch in range(epochs):
+        train_loss = train(
+            predictor_model,
+            sequence_train_loader,
+            criterion,
+            optimizer_convolution,
+            autoencoder,
+        )
+        test_loss = test(predictor_model, sequence_test_loader, criterion, autoencoder)
 
-# epochs = 10
-# for epoch in range(epochs):
-#     train_loss = train(
-#         model_transformer,
-#         sequence_train_loader,
-#         criterion,
-#         optimizer_transformer,
-#         transformer_autoencoder,
-#     )
-#     test_loss = test(model_transformer, sequence_test_loader, criterion)
-#     print(f"Epoch {epoch} Loss: {train_loss} Test Loss: {test_loss}")
+        losses["Train"].append(train_loss)
+        losses["Test"].append(test_loss)
+
+        print(f"Epoch {epoch} Loss: {train_loss} Test Loss: {test_loss}")
+        # scheduler_convolution.step()
+
+    return losses
 
 
-# %% Test
-def image_prediction_test(model, autoencoder, sequence_loader):
-    x = next(iter(sequence_train_loader))
-    orginal = x.clone()
-    batch_size, seq_len, _, _, _ = x.shape
-    x = x.to(device)
-    x = torch.flatten(x, start_dim=0, end_dim=1)
+def image_prediction_test(predictor_model, autoencoder, sequence_loader):
     with torch.no_grad():
+        x = next(iter(sequence_loader))
+        original = x.clone()
+        batch_size, seq_len, _, _, _ = x.shape
+        x = x.to(device)
+        x = torch.flatten(x, start_dim=0, end_dim=1)
         x = autoencoder.encoder(x.permute(0, 3, 1, 2))
-    x = x.unflatten(0, (batch_size, seq_len))
-    x_test = x[:, :-1, :]
-    y_test = x[:, -1, :]
+        x = x.unflatten(0, (batch_size, seq_len))
+        x_test = x[:, :-1, :]
+        y_test = x[:, -1, :]
 
-    out = model(x_test)[:, :-2]
+        out = predictor_model(x_test)[:, :-2]
 
-    print(out.shape, y_test.shape)
-    out = autoencoder.decoder(out)
-    y_test = autoencoder.decoder(y_test)
+        out = autoencoder.decoder(out)
+        y_test = autoencoder.decoder(y_test)
 
     num_rows = 4
     num_frames = 5
@@ -250,7 +220,7 @@ def image_prediction_test(model, autoencoder, sequence_loader):
 
     for i in range(num_rows):
         for j in range(num_frames):
-            ax[i, j].imshow(orginal[i, j - num_frames].squeeze())
+            ax[i, j].imshow(original[i, j - num_frames].squeeze())
             ax[i, j].axis("off")
             if i == 0:
                 ax[i, j].set_title(f"{10-num_frames+j+1}th")
@@ -263,16 +233,90 @@ def image_prediction_test(model, autoencoder, sequence_loader):
     plt.show()
 
 
-# %% Test Convolutional Autoencoder
-image_prediction_test(
-    model_convolution, convolutional_autoencoder, sequence_train_loader
+# %% Train Model with Convolutional Autoencoder
+
+# Load autoencoder
+convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
+    "models/convolutional_autoencoder.pth"
+)
+model_convolution = TransformerPredictor(
+    latent_dim=4, seq_len=9, num_transformer_layers=4
+).to(device)
+
+train_for_epochs(
+    model_convolution,
+    autoencoder=convolutional_autoencoder,
+    epochs=50,
+    learning_rate=0.01,
 )
 
-# %% Test Transformer Autoencoder
-# image_prediction_test(model_transformer, transformer_autoencoder, sequence_train_loader)
-# # # %% Test autoencoder
 
-# latent = torch.rand(1,4, device=device)
-# out = autoencoder.decoder(latent)
-# plt.imshow(out[0].detach().cpu().permute(1, 2, 0))
-# plt.show()
+# %% Test Convolutional Autoencoder (images)
+image_prediction_test(
+    model_convolution,
+    autoencoder=convolutional_autoencoder,
+    sequence_loader=sequence_test_loader,
+)
+
+
+# %% Train Model with Vision Transformer Autoencoder
+# TODO
+
+# %% Test Convolutional Autoencoder (images)
+# TODO
+
+
+# %% Convolutional Variant: Vary number of Transformer Layers
+numbers_of_transformer_layers = [1, 2, 4, 8]
+convolution_models_data = {}
+
+for i, num_layers in enumerate(numbers_of_transformer_layers):
+    model_convolution = TransformerPredictor(
+        latent_dim=4, seq_len=9, num_transformer_layers=num_layers
+    ).to(device)
+    optimizer_convolution = torch.optim.Adam(model_convolution.parameters(), lr=0.01)
+    # scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
+    #     optimizer_convolution, lr_lambda=lambda epoch: 0.95
+    # )
+
+    epochs = 30
+    losses = train_for_epochs(
+        predictor_model=model_convolution,
+        autoencoder=convolutional_autoencoder,
+        epochs=epochs,
+        learning_rate=0.01,
+    )
+
+    convolution_models_data[num_layers] = {}
+    convolution_models_data[num_layers]["model"] = model_convolution
+    convolution_models_data[num_layers]["losses"] = losses
+
+
+# %% Convolutional Variant: Plot varying number of Transformer Layers
+
+
+colors = ["orange", "blue", "green", "red", "black"]
+assert len(colors) >= len(convolution_models_data)
+for i, (num_layers, data) in enumerate(convolution_models_data.items()):
+    losses = data["losses"]
+    plt.plot(
+        losses["Train"],
+        linestyle="--",
+        label=f"Train, {num_layers} Layer(s)",
+        color=colors[i],
+    )
+    plt.plot(
+        losses["Test"],
+        label=f"Test, {num_layers} Layer(s)",
+        color=colors[i],
+    )
+
+plt.title("Losses for transformer predictor for different numbers of layers")
+plt.legend()
+plt.show()
+
+# %% Vision Transformer Variant: Vary number of Transformer Layers
+# TODO
+
+# %% Vision Transformer Variant: Plot varying number of Transformer Layers
+# TODO

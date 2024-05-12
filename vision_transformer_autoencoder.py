@@ -243,7 +243,7 @@ class VisionTransformerAutoencoder(nn.Module):
                 activation="gelu",
                 norm_first=True,
             ),
-            num_layers=7,
+            num_layers=1,
         )
 
         # num_transformer_encoder_layers = 4
@@ -350,7 +350,7 @@ last_epoch_number = 0
 learning_rate = 0.0001
 
 # %% Train #########################################################################
-num_epochs = 2
+num_epochs = 10
 optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
 for i, epoch in tqdm(enumerate(range(num_epochs))):
     train_loss = train(gpu_model, train_loader, criterion, optimizer, device)
