@@ -67,18 +67,18 @@ class ConvolutionalEncoder(nn.Module):
 class ConvolutionalDecoder(nn.Module):
     def __init__(
         self,
-        latent_image_size=16,
+        latent_image_size=8,
         latent_dim=4,
         hidden_feature_dim_1=16,
         hidden_feature_dim_2=32,
         hidden_feature_dim_3=64,
-        activation=nn.ReLU(),
+        activation=nn.SiLU(),
         kernel_size=3,
     ):
         super(ConvolutionalDecoder, self).__init__()
 
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, (latent_image_size**2) * hidden_feature_dim_3),
+            nn.Linear(latent_dim, latent_image_size**2 * hidden_feature_dim_3),
             activation,
             nn.Unflatten(
                 dim=1,
@@ -88,14 +88,6 @@ class ConvolutionalDecoder(nn.Module):
                     latent_image_size,
                 ),
             ),
-            nn.Conv2d(
-                hidden_feature_dim_3,
-                hidden_feature_dim_3,
-                kernel_size=kernel_size,
-                stride=1,
-                padding=1,
-            ),
-            activation,
             nn.ConvTranspose2d(
                 hidden_feature_dim_3,
                 hidden_feature_dim_2,
@@ -103,13 +95,6 @@ class ConvolutionalDecoder(nn.Module):
                 stride=2,
                 padding=1,
                 output_padding=1,
-            ),
-            nn.Conv2d(
-                hidden_feature_dim_2,
-                hidden_feature_dim_2,
-                kernel_size=kernel_size,
-                stride=1,
-                padding=1,
             ),
             activation,
             nn.ConvTranspose2d(
@@ -120,12 +105,14 @@ class ConvolutionalDecoder(nn.Module):
                 padding=1,
                 output_padding=1,
             ),
-            nn.Conv2d(
+            activation,
+            nn.ConvTranspose2d(
                 hidden_feature_dim_1,
                 1,
                 kernel_size=kernel_size,
-                stride=1,
+                stride=2,
                 padding=1,
+                output_padding=1,
             ),
         )
 
@@ -164,9 +151,7 @@ class ConvolutionalAutoencoder(nn.Module):
             kernel_size=kernel_size,
         )
 
-        self.forward_pass = nn.Sequential(
-            self.encoder, PrintLayer("Latent Space"), self.decoder
-        )
+        self.forward_pass = nn.Sequential(self.encoder, self.decoder)
 
     def forward(self, x):
         return self.forward_pass(x)
@@ -178,6 +163,6 @@ class ConvolutionalAutoencoder(nn.Module):
 
         x = self.decoder(x)
         return latent_space, x
-    
+
     def encode(self, x):
         return self.encoder(x)

@@ -13,11 +13,11 @@ print(f"Using {device=}")
 # %%
 
 
-FILE_NAME = "data/multiple_particle_dataset_500.pth"
-TEST_FILE_NAME = "data/multiple_particle_test_dataset_125.pth"
+# FILE_NAME = "data/multiple_particle_dataset_500.pth"
+# TEST_FILE_NAME = "data/multiple_particle_test_dataset_125.pth"
 
-# FILE_NAME = "data/particle_dataset_500.pth"
-# TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+FILE_NAME = "data/particle_dataset_500.pth"
+TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
 # FILE_NAME = "data/particle_dataset_4000.pth"
 # TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
@@ -50,7 +50,12 @@ try:
     del sys.modules["modules"]
     from modules import PrintLayer, ConvolutionalDecoder, ConvolutionalEncoder
 except KeyError:
-    from modules import PrintLayer, ConvolutionalDecoder, ConvolutionalEncoder, ConvolutionalAutoencoder
+    from modules import (
+        PrintLayer,
+        ConvolutionalDecoder,
+        ConvolutionalEncoder,
+        ConvolutionalAutoencoder,
+    )
 
 
 def train(model, train_loader, criterion, optimizer):
@@ -95,7 +100,7 @@ model = ConvolutionalAutoencoder(
     hidden_feature_dim_1=16,
     hidden_feature_dim_2=32,
     hidden_feature_dim_3=64,
-    latent_dim=8,
+    latent_dim=4,
 ).to(device)
 criterion = nn.MSELoss()
 
@@ -107,7 +112,7 @@ print(f"{initial_test_loss=}")
 # %% Training
 num_epochs = 10
 
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 for i, epoch in enumerate(tqdm(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
@@ -117,8 +122,7 @@ for i, epoch in enumerate(tqdm(range(num_epochs))):
 
 # %% Plot
 
-# for test_batch in test_loader:
-for test_batch in train_loader:
+for test_batch in test_loader:
     img = test_batch[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
 
     output_img = model.forward(img.permute(2, 0, 1).unsqueeze(0).to(device)).cpu()
@@ -137,42 +141,15 @@ for test_batch in train_loader:
     break
 
 
-# %% TODO: Remove this cell?
-rec_iter = 1000
-for test_batch in test_loader:
-    img = test_batch[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
-
-    input = img.permute(2, 0, 1).unsqueeze(0)
-
-    for i in range(rec_iter):
-        latent_space, output_img = model.forward_testing(input)
-        output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
-        input = output_img.permute(2, 0, 1).unsqueeze(0)
-
-    figure = plt.figure()
-    subplot1 = figure.add_subplot(1, 2, 1)
-    subplot1.imshow(img)
-    subplot1.set_title("Original Image")
-
-    subplot2 = figure.add_subplot(1, 2, 2)
-    subplot2.imshow(output_img)
-    subplot2.set_title(f"Output Image after {i+1} iterations")
-
-    plt.show()
-    break
-
 # %% Save model
-# torch.save(model, "models/convolutional_autoencoder_multiple_particles.pth")
-torch.save(model, "models/multiple_particle_convolutional_autoencoder.pth")
+torch.save(model, "models/convolutional_autoencoder.pth")
+# torch.save(model, "models/multiple_particle_convolutional_autoencoder.pth")
 
 
-# %% Plotting 2
+# %% Train varying latent dimensions
 
-# latent_dimensions = [1, 2, 3, 4, 8, 16]
-# final_loss_thresholds = [20, 15, 10, 5, 5, 5]
-
-latent_dimensions = [1, 2, 3, 4]
-final_loss_thresholds = [20, 15, 10, 5]
+latent_dimensions = [1, 2, 3, 4, 8]
+final_loss_thresholds = [20, 15, 10, 5, 5]
 
 models = []
 final_losses = []
@@ -188,7 +165,7 @@ for l, latent_dimension in tqdm(enumerate(latent_dimensions)):
         criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.01)
 
-        num_epochs = 10
+        num_epochs = 20
 
         for i, epoch in enumerate(tqdm(range(num_epochs))):
             train_loss = train(model, train_loader, criterion, optimizer)
@@ -202,7 +179,7 @@ for l, latent_dimension in tqdm(enumerate(latent_dimensions)):
     models.append(model)
     final_losses.append(test_loss)
 
-#%%
+# %% PLot varying latent dimensions
 test_batch = next(iter(test_loader))
 
 num_inputs = 5
@@ -219,9 +196,7 @@ figure.suptitle("Examples for varying latent dim")
 plt.axis("off")
 for i in range(num_inputs):
     # Plot input images
-    subplot = figure.add_subplot(
-        num_inputs, len(models) + 1, i * (len(models) + 1) + 1
-    )
+    subplot = figure.add_subplot(num_inputs, len(models) + 1, i * (len(models) + 1) + 1)
     subplot.imshow(input_images[i])
     subplot.axis("off")
 
