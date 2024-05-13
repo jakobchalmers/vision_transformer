@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 from data_generation import SequenceDataset, ImageDataset
 import sys
+import random
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using {device=}")
@@ -193,19 +194,22 @@ def train_for_epochs(predictor_model, autoencoder, epochs=50, learning_rate=0.01
     return losses
 
 
-def image_prediction_test(predictor_model, autoencoder, sequence_loader):
+# %% Prediction and plotting functions
+
+def image_prediction_test(predictor_model, autoencoder, sequence_loader: DataLoader):
+    x = random.sample(list(sequence_loader), 1)[0]
     with torch.no_grad():
-        x = next(iter(sequence_loader))
         original = x.clone()
         batch_size, seq_len, _, _, _ = x.shape
         x = x.to(device)
         x = torch.flatten(x, start_dim=0, end_dim=1)
         x = autoencoder.encoder(x.permute(0, 3, 1, 2))
         x = x.unflatten(0, (batch_size, seq_len))
-        x_test = x[:, :-1, :]
-        y_test = x[:, -1, :]
+        x_test = x[:, :-1, :]  # -> (batch_size, seq_len, latent_dim)
+        y_test = x[:, -1, :]  # -> (batch_size, latent_dim)
 
-        out = predictor_model(x_test)[:, :-2]
+        out = predictor_model(x_test)  # -> (batch_size, latent_dim + time_dim)
+        out = out[:, :-2]  # -> (batch_size_latent_dim)
 
         out = autoencoder.decoder(out)
         y_test = autoencoder.decoder(y_test)
@@ -225,10 +229,77 @@ def image_prediction_test(predictor_model, autoencoder, sequence_loader):
             if i == 0:
                 ax[i, j].set_title(f"{10-num_frames+j+1}th")
 
-        ax[i, num_frames].imshow(out[i].detach().cpu().permute(1, 2, 0))
+        ax[i, num_frames].imshow(out[i, :, :].detach().cpu().permute(1, 2, 0))
         ax[i, num_frames].axis("off")
         if i == 0:
             ax[i, num_frames].set_title("Predicted 10th")
+
+    plt.show()
+
+
+def sequence_prediction_test(
+    predictor_model, autoencoder, sequence_loader: DataLoader, num_predictions: int
+):
+    x = random.sample(list(sequence_loader), 1)[0]
+    with torch.no_grad():
+        original = x.clone()
+        batch_size, seq_len, _, _, _ = x.shape
+
+        x = x.to(device).flatten(start_dim=0, end_dim=1)
+        x = autoencoder.encoder(x.permute(0, 3, 1, 2))
+        x = x.unflatten(
+            0, (batch_size, seq_len)
+        )  # -> (batch_size, seq_len, latent_dim)
+
+        x_test = x[:, :-1, :]  # -> (batch_size, seq_len, latent_dim)
+        for i in range(num_predictions):
+
+            prediction = predictor_model(x_test[:, -(seq_len - 1) :, :])[
+                :, :-2
+            ].unsqueeze(
+                1
+            )  # -> (batch_size, latent_dim, d_embed)
+            x_test = torch.cat(
+                (x_test, prediction), dim=1
+            )  # -> (batch_size, seq_len + i, d_embed)
+        latent_predictions = x_test[
+            :, (seq_len - 1) :, :
+        ]  # -> (batch_size, num_predictions, d_embed)
+        flattened_latent_predictions = latent_predictions.flatten(
+            start_dim=0, end_dim=1
+        )  # -> (batch_size * num_predictions, d_embed)
+
+        flattened_predictions: torch.Tensor = autoencoder.decoder(
+            flattened_latent_predictions
+        )  # -> (batch_size * num_predictions, 1, 64, 64)
+        predictions: torch.Tensor = flattened_predictions.unflatten(
+            dim=0, sizes=(batch_size, num_predictions)
+        )  # -> (batch_size, num_predictions, 1, 64, 64)
+        print(predictions.shape)
+        
+
+    num_rows = 4
+    num_original_frames = 5
+    fig, ax = plt.subplots(
+        num_rows,
+        num_original_frames + num_predictions,
+        figsize=(2 * (num_original_frames + num_predictions), 2 * num_rows),
+    )
+    # Remove vertical space between subplots
+    fig.subplots_adjust(hspace=0.1, wspace=0.1)
+
+    for i in range(num_rows):
+        for j in range(num_original_frames):
+            ax[i, j].imshow(original[i, j - num_original_frames].squeeze())
+            ax[i, j].axis("off")
+            if i == 0:
+                ax[i, j].set_title(f"{10-num_original_frames+j+1}th")
+
+        for k in range(num_predictions):
+            ax[i, num_original_frames + k].imshow(predictions[i, k, :, :, :].detach().cpu().permute(1, 2, 0))
+            ax[i, num_original_frames + k].axis("off")
+            if i == 0:
+                ax[i, num_original_frames + k].set_title(f"Predicted {seq_len+k}th")
 
     plt.show()
 
@@ -251,13 +322,21 @@ train_for_epochs(
 )
 
 
-# %% Test Convolutional Autoencoder (images)
+# %% Test Convolutional Autoencoder for 1 prediction
 image_prediction_test(
     model_convolution,
     autoencoder=convolutional_autoencoder,
     sequence_loader=sequence_test_loader,
 )
 
+# %% Test Convolutional Autoencoder for multiple predictions
+
+sequence_prediction_test(
+    predictor_model=model_convolution,
+    autoencoder=convolutional_autoencoder,
+    sequence_loader=sequence_test_loader,
+    num_predictions=10,
+)
 
 # %% Train Model with Vision Transformer Autoencoder
 # TODO
@@ -279,7 +358,7 @@ for i, num_layers in enumerate(numbers_of_transformer_layers):
     #     optimizer_convolution, lr_lambda=lambda epoch: 0.95
     # )
 
-    epochs = 30
+    epochs = 3
     losses = train_for_epochs(
         predictor_model=model_convolution,
         autoencoder=convolutional_autoencoder,
