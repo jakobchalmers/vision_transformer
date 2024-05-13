@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 class SequenceDataset(Dataset):
     def __init__(self, data_generator, data_size):
@@ -38,11 +39,12 @@ def main():
     MIN_SIZE = 0.5e-6
     MAX_SIZE = 1.5e-6
     MAX_VEL = 10  # Maximum velocity. The higher the trickier!
-    MAX_PARTICLES = 3  # Max number of particles in each sequence. The higher the trickier!
+    MAX_PARTICLES = 2  # Max number of particles in each sequence. The higher the trickier!
 
     # Defining properties of the particles
     particle = dt.Sphere(
-        intensity=lambda: 10 + 10 * np.random.rand(),
+        # intensity=lambda: 10 + 10 * np.random.rand(),
+        intensity=lambda: 10,
         radius=lambda: MIN_SIZE + np.random.rand() * (MAX_SIZE - MIN_SIZE),
         position=lambda: IMAGE_SIZE * np.random.rand(2),
         vel=lambda: MAX_VEL * np.random.rand(2),
@@ -80,26 +82,30 @@ def main():
     # Note that the sequences are flipped in different directions, so that each unique sequence defines
     # in fact 8 sequences flipped in different directions, to speed up data generation
     sequential_images = dt.Sequence(
-        optics(particle ** (lambda: 1 + np.random.randint(MAX_PARTICLES))),
+        # optics(particle ** (lambda: 1 + np.random.randint(MAX_PARTICLES))),
+        # optics(particle ^ (lambda: 1 + np.random.randint(MAX_PARTICLES))),
+        optics(particle ^ (lambda: MAX_PARTICLES)),
         sequence_length=sequence_length,
     )
     train_loader: dt.Sequence = (
         sequential_images >> dt.FlipUD() >> dt.FlipDiagonal() >> dt.FlipLR()
     )
 
-    FILE_NAME = "data/particle_dataset.pth"
-    TEST_FILE_NAME = "data/particle_test_dataset.pth"
+    # Generate and save
+
+    data_size = 500
+    test_data_size = data_size // 4
+    FILE_NAME = f"data/consistent_intensity_multiple_particle_dataset_{data_size}.pth"
+    TEST_FILE_NAME = f"data/consistent_intensity_multiple_particle_test_dataset_{test_data_size}.pth"
 
     print(FILE_NAME, TEST_FILE_NAME)
     input("Sure?")
 
     # Train data
-    data_size = 4000
     dataset: SequenceDataset = SequenceDataset(train_loader, data_size)
     torch.save(dataset, FILE_NAME)
 
     # Test data
-    test_data_size = 1000
     test_dataset: SequenceDataset = SequenceDataset(train_loader, test_data_size)
     torch.save(test_dataset, TEST_FILE_NAME)
 

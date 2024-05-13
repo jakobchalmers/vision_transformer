@@ -97,14 +97,14 @@ class Time2Vector(nn.Module):
 
 
 class TransformerPredictor(nn.Module):
-    def __init__(self, latent_dim, seq_len, num_transformer_layers):
+    def __init__(self, latent_dim, seq_len, num_transformer_layers, nhead):
         super(TransformerPredictor, self).__init__()
         time_encoding_dim = 2
         self.time2vector = Time2Vector(seq_len=seq_len, latent_dim=latent_dim)
         self.transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(
                 d_model=latent_dim + time_encoding_dim,
-                nhead=3,
+                nhead=nhead,
                 dim_feedforward=256,
                 dropout=0.1,
                 activation="relu",
@@ -311,7 +311,7 @@ convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
     "models/convolutional_autoencoder.pth"
 )
 model_convolution = TransformerPredictor(
-    latent_dim=4, seq_len=9, num_transformer_layers=4
+    latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
 ).to(device)
 
 train_for_epochs(
@@ -344,6 +344,9 @@ sequence_prediction_test(
 # %% Test Convolutional Autoencoder (images)
 # TODO
 
+# %% Test Convolutional Autoencoder for multiple predictions
+# TODO
+
 
 # %% Convolutional Variant: Vary number of Transformer Layers
 numbers_of_transformer_layers = [1, 2, 4, 8]
@@ -351,7 +354,7 @@ convolution_models_data = {}
 
 for i, num_layers in enumerate(numbers_of_transformer_layers):
     model_convolution = TransformerPredictor(
-        latent_dim=4, seq_len=9, num_transformer_layers=num_layers
+        latent_dim=4, seq_len=9, num_transformer_layers=num_layers, nhead=3
     ).to(device)
     optimizer_convolution = torch.optim.Adam(model_convolution.parameters(), lr=0.01)
     # scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
@@ -399,3 +402,78 @@ plt.show()
 
 # %% Vision Transformer Variant: Plot varying number of Transformer Layers
 # TODO
+
+
+# # %% Load multiple particle data
+
+
+# MULTIPLE_PARTICLE_FILE_NAME = "data/multiple_particle_dataset_500.pth"
+# MULTIPLE_PARTICLE_TEST_FILE_NAME = "data/multiple_particle_test_dataset_125.pth"
+
+# print("Loading...")
+# sequence_dataset: SequenceDataset = torch.load(MULTIPLE_PARTICLE_FILE_NAME)
+# sequence_test_dataset: SequenceDataset = torch.load(MULTIPLE_PARTICLE_TEST_FILE_NAME)
+
+# sequence_train_loader = DataLoader(
+#     sequence_dataset,
+#     batch_size=32,
+#     shuffle=True,
+# )
+
+# sequence_test_loader = DataLoader(
+#     sequence_test_dataset,
+#     batch_size=32,
+#     shuffle=False,
+# )
+
+
+# image_dataset = ImageDataset(sequence_dataset)
+# image_test_dataset = ImageDataset(sequence_test_dataset)
+
+# image_train_loader = DataLoader(
+#     image_dataset,
+#     batch_size=32,
+#     shuffle=True,
+# )
+
+# image_test_loader = DataLoader(
+#     image_test_dataset,
+#     batch_size=32,
+#     shuffle=False,
+# )
+# print("Done")
+
+
+# # %% Train Model with Convolutional Autoencoder
+
+# # Load autoencoder
+# convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
+#     "models/convolutional_autoencoder.pth"
+# )
+# model_convolution = TransformerPredictor(
+#     latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
+# ).to(device)
+
+# train_for_epochs(
+#     model_convolution,
+#     autoencoder=convolutional_autoencoder,
+#     epochs=50,
+#     learning_rate=0.01,
+# )
+
+
+# # %% Test Convolutional Autoencoder for 1 prediction
+# image_prediction_test(
+#     model_convolution,
+#     autoencoder=convolutional_autoencoder,
+#     sequence_loader=sequence_test_loader,
+# )
+
+# # %% Test Convolutional Autoencoder for multiple predictions
+
+# sequence_prediction_test(
+#     predictor_model=model_convolution,
+#     autoencoder=convolutional_autoencoder,
+#     sequence_loader=sequence_test_loader,
+#     num_predictions=10,
+# )

@@ -12,8 +12,12 @@ print(f"Using {device=}")
 
 # %%
 
-FILE_NAME = "data/particle_dataset_500.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+
+FILE_NAME = "data/multiple_particle_dataset_500.pth"
+TEST_FILE_NAME = "data/multiple_particle_test_dataset_125.pth"
+
+# FILE_NAME = "data/particle_dataset_500.pth"
+# TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
 # FILE_NAME = "data/particle_dataset_4000.pth"
 # TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
@@ -91,10 +95,9 @@ model = ConvolutionalAutoencoder(
     hidden_feature_dim_1=16,
     hidden_feature_dim_2=32,
     hidden_feature_dim_3=64,
-    latent_dim=4,
+    latent_dim=8,
 ).to(device)
 criterion = nn.MSELoss()
-optimizer = optim.Adam(model.parameters(), lr=0.01)
 
 initial_train_loss = test(model, train_loader, criterion)
 print(f"{initial_train_loss=}")
@@ -103,15 +106,19 @@ print(f"{initial_test_loss=}")
 
 # %% Training
 num_epochs = 10
+
+optimizer = optim.Adam(model.parameters(), lr=0.01)
 for i, epoch in enumerate(tqdm(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
 
     print(f"Epoch {i+1}: Train loss {train_loss}, Test Loss {test_loss}")
 
-# %% plot
 
-for test_batch in test_loader:
+# %% Plot
+
+# for test_batch in test_loader:
+for test_batch in train_loader:
     img = test_batch[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
 
     output_img = model.forward(img.permute(2, 0, 1).unsqueeze(0).to(device)).cpu()
@@ -129,7 +136,8 @@ for test_batch in test_loader:
 
     break
 
-# %%
+
+# %% TODO: Remove this cell?
 rec_iter = 1000
 for test_batch in test_loader:
     img = test_batch[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
@@ -154,7 +162,10 @@ for test_batch in test_loader:
     break
 
 # %% Save model
-torch.save(model, "models/convolutional_autoencoder.pth")
+# torch.save(model, "models/convolutional_autoencoder_multiple_particles.pth")
+torch.save(model, "models/multiple_particle_convolutional_autoencoder.pth")
+
+
 # %% Plotting 2
 
 # latent_dimensions = [1, 2, 3, 4, 8, 16]
