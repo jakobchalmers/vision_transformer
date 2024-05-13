@@ -43,8 +43,7 @@ def main():
 
     # Defining properties of the particles
     particle = dt.Sphere(
-        # intensity=lambda: 10 + 10 * np.random.rand(),
-        intensity=lambda: 10,
+        intensity=lambda: 10 + 10 * np.random.rand(),
         radius=lambda: MIN_SIZE + np.random.rand() * (MAX_SIZE - MIN_SIZE),
         position=lambda: IMAGE_SIZE * np.random.rand(2),
         vel=lambda: MAX_VEL * np.random.rand(2),
@@ -93,8 +92,8 @@ def main():
 
     # Generate and save
 
-    data_size = 500
-    test_data_size = data_size // 4
+    data_size = 2000
+    test_data_size = data_size // 10
     FILE_NAME = f"data/consistent_intensity_multiple_particle_dataset_{data_size}.pth"
     TEST_FILE_NAME = f"data/consistent_intensity_multiple_particle_test_dataset_{test_data_size}.pth"
 
