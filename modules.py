@@ -163,6 +163,3 @@ class ConvolutionalAutoencoder(nn.Module):
 
         x = self.decoder(x)
         return latent_space, x
-
-    def encode(self, x):
-        return self.encoder(x)
