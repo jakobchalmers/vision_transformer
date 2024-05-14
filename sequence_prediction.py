@@ -546,14 +546,16 @@ convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
     "models/multiple_particle_convolutional_autoencoder_2000.pth"
 )
 model_convolution = TransformerPredictor(
-    latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
+    latent_dim=8, seq_len=9, num_transformer_layers=4, nhead=5,
 ).to(device)
 
-train_for_epochs(
+# %%
+
+losses = train_for_epochs(
     model_convolution,
     autoencoder=convolutional_autoencoder,
-    epochs=50,
-    learning_rate=0.01,
+    epochs=10,
+    learning_rate=0.001,
 )
 
 
