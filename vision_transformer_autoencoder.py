@@ -18,8 +18,11 @@ print(f"Using {device=}")
 # FILE_NAME = "data/particle_dataset_500.pth"
 # TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
-FILE_NAME = "data/particle_dataset_4000.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
+# FILE_NAME = "data/particle_dataset_4000.pth"
+# TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
+
+FILE_NAME = "data/multiple_particle_dataset_2000.pth"
+TEST_FILE_NAME = "data/multiple_particle_test_dataset_200.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
@@ -89,8 +92,8 @@ def test(model, data_loader, criterion, device):
 # %% Setup for training ###########################################################
 
 gpu_model = VisionTransformerAutoencoder(
-    dim_embedding=4,
-    latent_dim=4,
+    dim_embedding=8,
+    latent_dim=8, # OBS
     patch_size=32,
     number_of_heads=2,
     number_of_transformer_layers=4,
@@ -107,8 +110,8 @@ print(f"{initial_test_loss=}")
 last_epoch_number = 0
 
 # %% Train #########################################################################
-num_epochs = 3
-learning_rate = 0.0001
+num_epochs = 10
+learning_rate = 0.00001
 optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
 for i, epoch in tqdm(enumerate(range(num_epochs))):
     train_loss = train(gpu_model, train_loader, criterion, optimizer, device)

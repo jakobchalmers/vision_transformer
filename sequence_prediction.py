@@ -543,7 +543,7 @@ import dill
 
 # Load autoencoder
 convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
-    "models/multiple_particle_convolutional_autoencoder.pth"
+    "models/multiple_particle_convolutional_autoencoder_2000.pth"
 )
 model_convolution = TransformerPredictor(
     latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,

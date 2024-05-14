@@ -13,14 +13,14 @@ print(f"Using {device=}")
 # %%
 
 
-# FILE_NAME = "data/multiple_particle_dataset_500.pth"
-# TEST_FILE_NAME = "data/multiple_particle_test_dataset_125.pth"
+FILE_NAME = "data/multiple_particle_dataset_2000.pth"
+TEST_FILE_NAME = "data/multiple_particle_test_dataset_200.pth"
 
 # FILE_NAME = "data/particle_dataset_500.pth"
 # TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
 
-FILE_NAME = "data/particle_dataset_4000.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
+# FILE_NAME = "data/particle_dataset_4000.pth"
+# TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
@@ -98,7 +98,7 @@ model = ConvolutionalAutoencoder(
     hidden_feature_dim_1=16,
     hidden_feature_dim_2=32,
     hidden_feature_dim_3=64,
-    latent_dim=4, # OBS 4 for single 8 for multiple
+    latent_dim=8, # OBS 4 for single 8 for multiple
 ).to(device)
 criterion = nn.MSELoss()
 
@@ -108,9 +108,9 @@ initial_test_loss = test(model, test_loader, criterion)
 print(f"{initial_test_loss=}")
 
 # %% Training
-num_epochs = 10
+num_epochs = 5
 
-optimizer = optim.Adam(model.parameters(), lr=0.01)
+optimizer = optim.Adam(model.parameters(), lr=0.005)
 for i, epoch in enumerate(tqdm(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
@@ -135,14 +135,13 @@ for test_batch in test_loader:
     subplot2.set_title("Output Image")
 
     plt.show()
-
     break
 
 
 # %% Save model
 import dill
-torch.save(model, "models/convolutional_autoencoder_4000.pth", pickle_module=dill)
-# torch.save(model, "models/multiple_particle_convolutional_autoencoder.pth")
+# torch.save(model, "models/convolutional_autoencoder_4000.pth", pickle_module=dill)
+torch.save(model, "models/multiple_particle_convolutional_autoencoder_2000.pth", pickle_module=dill)
 
 
 # %% Train varying latent dimensions

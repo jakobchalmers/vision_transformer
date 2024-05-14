@@ -79,7 +79,8 @@ class ClassTokenGrabber(nn.Module):
 
     def forward(self, x):
         # Get class token (first element)
-        return x[:, -1, :]  # -> (batch_size, dim_embedding)
+        # return x[:, -1, :]  # -> (batch_size, dim_embedding)
+        return x[:, 0, :]  # -> (batch_size, dim_embedding)
 
 
 class TransformerEncoderLayer(nn.Module):
