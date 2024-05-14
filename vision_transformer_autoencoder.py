@@ -137,8 +137,6 @@ for data in test_loader:
     plt.show()
     break
 
-
-
 # %% Save model
 import dill
 torch.save(gpu_model, "models/vision_transformer_autoencoder_4000.pth", pickle_module=dill)

@@ -13,8 +13,8 @@ print(f"Using {device=}")
 
 # %%
 
-FILE_NAME = "data/particle_dataset_500.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+FILE_NAME = "data/particle_dataset_4000.pth"
+TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
@@ -117,6 +117,7 @@ class TransformerPredictor(nn.Module):
         return x[:, -1, :]
 
 
+
 # %% Train
 def train(model, train_loader, criterion, optimizer, autoencoder):
     model.train()
@@ -168,10 +169,6 @@ def train_for_epochs(predictor_model, autoencoder, epochs=50, learning_rate=0.01
     optimizer = torch.optim.Adam(
         predictor_model.parameters(), lr=learning_rate
     )
-
-    # scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
-    #     optimizer_convolution, lr_lambda=lambda epoch: 0.95
-    # )
 
     losses = {"Train": [], "Test": []}
     for epoch in range(epochs):
@@ -305,6 +302,7 @@ def sequence_prediction_test(
 
 # Load autoencoder
 convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
+    # "models/convolutional_autoencoder_4000.pth"
     "models/convolutional_autoencoder.pth"
 )
 model_convolution = TransformerPredictor(
@@ -312,11 +310,11 @@ model_convolution = TransformerPredictor(
 ).to(device)
 
 # %% Train convolution variant
-train_for_epochs(
+losses = train_for_epochs(
     model_convolution,
     autoencoder=convolutional_autoencoder,
-    epochs=20,
-    learning_rate=0.1,
+    epochs=10,
+    learning_rate=0.01,
 )
 
 
@@ -341,19 +339,38 @@ import dill
 from vision_modules import VisionTransformerAutoencoder
 # Load autoencoder
 vision_autoencoder: VisionTransformerAutoencoder = torch.load(
-    "models/vision_transformer_autoencoder.pth",
+    "models/vision_transformer_autoencoder_4000.pth",
     pickle_module=dill,
 )
 model_vision = TransformerPredictor(
     latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
 ).to(device)
 
+# # %%
+# import random
+# for data in sequence_test_loader:
+#     data = torch.flatten(data, start_dim=0, end_dim=1)
+#     original = data.clone()
+#     data = data.permute(0, 3, 1, 2).to(device)
+#     print(data.shape)
+
+#     out = vision_autoencoder(data).detach().cpu().permute(0, 2, 3, 1)
+#     rand = random.randint(0, 319)
+#     print(rand)
+
+#     plt.imshow(original[rand, :, :, :])
+#     plt.show()
+#     plt.imshow(out[rand, :, :, :])
+
+#     break
+
+
 # %%
 train_for_epochs(
     model_vision,
     autoencoder=vision_autoencoder,
-    epochs=20,
-    learning_rate=0.1,
+    epochs=10,
+    learning_rate=0.01,
 )
 
 # %% Test Convolutional Autoencoder (images)
@@ -382,17 +399,23 @@ for i, num_layers in enumerate(numbers_of_transformer_layers):
         latent_dim=4, seq_len=9, num_transformer_layers=num_layers, nhead=3
     ).to(device)
     optimizer_convolution = torch.optim.Adam(model_convolution.parameters(), lr=0.01)
-    # scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
-    #     optimizer_convolution, lr_lambda=lambda epoch: 0.95
-    # )
 
-    epochs = 3
+    epochs = 10
     losses = train_for_epochs(
         predictor_model=model_convolution,
         autoencoder=convolutional_autoencoder,
         epochs=epochs,
         learning_rate=0.01,
     )
+
+    epochs = 10
+    losses = train_for_epochs(
+        predictor_model=model_convolution,
+        autoencoder=convolutional_autoencoder,
+        epochs=epochs,
+        learning_rate=0.001,
+    )
+
 
     convolution_models_data[num_layers] = {}
     convolution_models_data[num_layers]["model"] = model_convolution
@@ -431,13 +454,22 @@ for i, num_layers in enumerate(numbers_of_transformer_layers):
         latent_dim=4, seq_len=9, num_transformer_layers=num_layers, nhead=3
     ).to(device)
 
-    epochs = 3
+    epochs = 10
     losses = train_for_epochs(
         predictor_model=model_vision,
         autoencoder=vision_autoencoder,
         epochs=epochs,
         learning_rate=0.01,
     )
+
+    epochs = 10
+    losses = train_for_epochs(
+        predictor_model=model_vision,
+        autoencoder=vision_autoencoder,
+        epochs=epochs,
+        learning_rate=0.001,
+    )
+
 
     vision_models_data[num_layers] = {}
     vision_models_data[num_layers]["model"] = model_vision
@@ -461,81 +493,82 @@ for i, (num_layers, data) in enumerate(vision_models_data.items()):
         color=colors[i],
     )
 
-plt.title("Losses for transformer predictor for different numbers of layers")
+plt.title("Losses for Vision Transformer autoencodern frame predictor for different numbers of layers")
 plt.legend()
 plt.show()
 
 
-# # %% Load multiple particle data
+# %% Load multiple particle data
 
 
-# MULTIPLE_PARTICLE_FILE_NAME = "data/multiple_particle_dataset_500.pth"
-# MULTIPLE_PARTICLE_TEST_FILE_NAME = "data/multiple_particle_test_dataset_125.pth"
+MULTIPLE_PARTICLE_FILE_NAME = "data/multiple_particle_dataset_2000.pth"
+MULTIPLE_PARTICLE_TEST_FILE_NAME = "data/multiple_particle_test_dataset_200.pth"
 
-# print("Loading...")
-# sequence_dataset: SequenceDataset = torch.load(MULTIPLE_PARTICLE_FILE_NAME)
-# sequence_test_dataset: SequenceDataset = torch.load(MULTIPLE_PARTICLE_TEST_FILE_NAME)
+print("Loading...")
+sequence_dataset: SequenceDataset = torch.load(MULTIPLE_PARTICLE_FILE_NAME)
+sequence_test_dataset: SequenceDataset = torch.load(MULTIPLE_PARTICLE_TEST_FILE_NAME)
 
-# sequence_train_loader = DataLoader(
-#     sequence_dataset,
-#     batch_size=32,
-#     shuffle=True,
-# )
+sequence_train_loader = DataLoader(
+    sequence_dataset,
+    batch_size=32,
+    shuffle=True,
+)
 
-# sequence_test_loader = DataLoader(
-#     sequence_test_dataset,
-#     batch_size=32,
-#     shuffle=False,
-# )
-
-
-# image_dataset = ImageDataset(sequence_dataset)
-# image_test_dataset = ImageDataset(sequence_test_dataset)
-
-# image_train_loader = DataLoader(
-#     image_dataset,
-#     batch_size=32,
-#     shuffle=True,
-# )
-
-# image_test_loader = DataLoader(
-#     image_test_dataset,
-#     batch_size=32,
-#     shuffle=False,
-# )
-# print("Done")
+sequence_test_loader = DataLoader(
+    sequence_test_dataset,
+    batch_size=32,
+    shuffle=False,
+)
 
 
-# # %% Train Model with Convolutional Autoencoder
+image_dataset = ImageDataset(sequence_dataset)
+image_test_dataset = ImageDataset(sequence_test_dataset)
 
-# # Load autoencoder
-# convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
-#     "models/convolutional_autoencoder.pth"
-# )
-# model_convolution = TransformerPredictor(
-#     latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
-# ).to(device)
+image_train_loader = DataLoader(
+    image_dataset,
+    batch_size=32,
+    shuffle=True,
+)
 
-# train_for_epochs(
-#     model_convolution,
-#     autoencoder=convolutional_autoencoder,
-#     epochs=50,
-#     learning_rate=0.01,
-# )
+image_test_loader = DataLoader(
+    image_test_dataset,
+    batch_size=32,
+    shuffle=False,
+)
+print("Done")
 
 
-# # %% Test Convolutional Autoencoder for 1 prediction
-# image_prediction_test(
-#     model_convolution,
-#     autoencoder=convolutional_autoencoder,
-#     sequence_loader=sequence_test_loader,
-# )
+# %% Train Model with Convolutional Autoencoder
+import dill
 
-# # %% Test Convolutional Autoencoder for multiple predictions
+# Load autoencoder
+convolutional_autoencoder: ConvolutionalAutoencoder = torch.load(
+    "models/multiple_particle_convolutional_autoencoder.pth"
+)
+model_convolution = TransformerPredictor(
+    latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
+).to(device)
 
-# sequence_prediction_test(
-#     predictor_model=model_convolution,
-#     autoencoder=convolutional_autoencoder,
-#     sequence_loader=sequence_test_loader,
-#     num_predictions=10,
-# )
+train_for_epochs(
+    model_convolution,
+    autoencoder=convolutional_autoencoder,
+    epochs=50,
+    learning_rate=0.01,
+)
+
+
+# %% Test Convolutional Autoencoder for 1 prediction
+image_prediction_test(
+    model_convolution,
+    autoencoder=convolutional_autoencoder,
+    sequence_loader=sequence_test_loader,
+)
+
+# %% Test Convolutional Autoencoder for multiple predictions
+
+sequence_prediction_test(
+    predictor_model=model_convolution,
+    autoencoder=convolutional_autoencoder,
+    sequence_loader=sequence_test_loader,
+    num_predictions=10,
+)
