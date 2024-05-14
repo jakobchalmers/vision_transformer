@@ -121,7 +121,6 @@ class TransformerPredictor(nn.Module):
 def train(model, train_loader, criterion, optimizer, autoencoder):
     model.train()
     total_loss = 0
-    print("Training...")
     for x in sequence_train_loader:
         batch_size, seq_len, _, _, _ = x.shape
         x = x.to(device)
@@ -194,7 +193,6 @@ def train_for_epochs(predictor_model, autoencoder, epochs=50, learning_rate=0.01
     return losses
 
 
-# %% Prediction and plotting functions
 
 def image_prediction_test(predictor_model, autoencoder, sequence_loader: DataLoader):
     x = random.sample(list(sequence_loader), 1)[0]
@@ -275,7 +273,6 @@ def sequence_prediction_test(
         predictions: torch.Tensor = flattened_predictions.unflatten(
             dim=0, sizes=(batch_size, num_predictions)
         )  # -> (batch_size, num_predictions, 1, 64, 64)
-        print(predictions.shape)
         
 
     num_rows = 4
@@ -314,12 +311,12 @@ model_convolution = TransformerPredictor(
     latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
 ).to(device)
 
-# %% #TODO: fix, complains at autoencoder.encoder
+# %% Train convolution variant
 train_for_epochs(
     model_convolution,
     autoencoder=convolutional_autoencoder,
-    epochs=10,
-    learning_rate=0.0001,
+    epochs=20,
+    learning_rate=0.1,
 )
 
 
@@ -355,15 +352,25 @@ model_vision = TransformerPredictor(
 train_for_epochs(
     model_vision,
     autoencoder=vision_autoencoder,
-    epochs=10,
-    learning_rate=0.01,
+    epochs=20,
+    learning_rate=0.1,
 )
 
 # %% Test Convolutional Autoencoder (images)
-# TODO
+image_prediction_test(
+    predictor_model=model_vision,
+    autoencoder=vision_autoencoder,
+    sequence_loader=sequence_test_loader,
+)
 
 # %% Test Convolutional Autoencoder for multiple predictions
-# TODO
+sequence_prediction_test(
+    predictor_model=model_vision,
+    autoencoder=vision_autoencoder,
+    sequence_loader=sequence_test_loader,
+    num_predictions=10,
+)
+
 
 
 # %% Convolutional Variant: Vary number of Transformer Layers
@@ -416,10 +423,47 @@ plt.legend()
 plt.show()
 
 # %% Vision Transformer Variant: Vary number of Transformer Layers
-# TODO
+numbers_of_transformer_layers = [1, 2, 4, 8]
+vision_models_data = {}
+
+for i, num_layers in enumerate(numbers_of_transformer_layers):
+    model_vision = TransformerPredictor(
+        latent_dim=4, seq_len=9, num_transformer_layers=num_layers, nhead=3
+    ).to(device)
+
+    epochs = 3
+    losses = train_for_epochs(
+        predictor_model=model_vision,
+        autoencoder=vision_autoencoder,
+        epochs=epochs,
+        learning_rate=0.01,
+    )
+
+    vision_models_data[num_layers] = {}
+    vision_models_data[num_layers]["model"] = model_vision
+    vision_models_data[num_layers]["losses"] = losses
 
 # %% Vision Transformer Variant: Plot varying number of Transformer Layers
-# TODO
+
+colors = ["orange", "blue", "green", "red", "black"]
+assert len(colors) >= len(vision_models_data)
+for i, (num_layers, data) in enumerate(vision_models_data.items()):
+    losses = data["losses"]
+    plt.plot(
+        losses["Train"],
+        linestyle="--",
+        label=f"Train, {num_layers} Layer(s)",
+        color=colors[i],
+    )
+    plt.plot(
+        losses["Test"],
+        label=f"Test, {num_layers} Layer(s)",
+        color=colors[i],
+    )
+
+plt.title("Losses for transformer predictor for different numbers of layers")
+plt.legend()
+plt.show()
 
 
 # # %% Load multiple particle data

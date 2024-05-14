@@ -43,10 +43,10 @@ print("Done")
 # %% Functions ##############################################################
 
 try:
-    del sys.modules["modules"]
-    from modules import PrintLayer, ConvolutionalDecoder
+    del sys.modules["vision_modules"]
+    from vision_modules import VisionTransformerAutoencoder
 except KeyError:
-    from modules import PrintLayer, ConvolutionalDecoder
+    from vision_modules import VisionTransformerAutoencoder
 
 
 def train(model, train_loader, criterion, optimizer, device):
@@ -81,9 +81,7 @@ def test(model, data_loader, criterion, device):
     return mean_loss
 
 
-# %% Modules
 
-from vision_modules import VisionTransformerAutoencoder
 
 # %% Setup for training ###########################################################
 
@@ -91,8 +89,8 @@ gpu_model = VisionTransformerAutoencoder(
     dim_embedding=4,
     latent_dim=4,
     patch_size=32,
-    number_of_heads=1,
-    number_of_transformer_layers=1,
+    number_of_heads=2,
+    number_of_transformer_layers=4,
     device=device,
 ).to(device)
 criterion = nn.MSELoss()
@@ -104,10 +102,9 @@ initial_test_loss = test(gpu_model, test_loader, criterion, device)
 print(f"{initial_test_loss=}")
 
 last_epoch_number = 0
-learning_rate = 0.01
 
 # %% Train #########################################################################
-num_epochs = 10
+num_epochs = 20
 learning_rate = 0.0001
 optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
 for i, epoch in tqdm(enumerate(range(num_epochs))):
@@ -123,7 +120,6 @@ last_epoch_number += i + 1
 # %% Plot #########################################################################
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
-    print(img.shape)
     output_img = gpu_model(img.permute(2, 0, 1).unsqueeze(0).to(device)).cpu()
     output_img = output_img.detach().squeeze(0).permute(1, 2, 0)
     figure = plt.figure()
@@ -139,9 +135,11 @@ for data in test_loader:
 
     break
 
+
+
 # %% save model
 import dill
-torch.save(gpu_model, "vision_transformer_autoencoder.pth", pickle_module=dill)
+torch.save(gpu_model, "models/vision_transformer_autoencoder.pth", pickle_module=dill)
 
 # %% Attention gate output ########################################################
 
