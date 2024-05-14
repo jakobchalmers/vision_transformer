@@ -15,8 +15,11 @@ print(f"Using {device=}")
 
 # %% Data Loading
 
-FILE_NAME = "data/particle_dataset_500.pth"
-TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+# FILE_NAME = "data/particle_dataset_500.pth"
+# TEST_FILE_NAME = "data/particle_test_dataset_100.pth"
+
+FILE_NAME = "data/particle_dataset_4000.pth"
+TEST_FILE_NAME = "data/particle_test_dataset_1000.pth"
 
 print("Loading...")
 sequence_dataset: SequenceDataset = torch.load(FILE_NAME)
@@ -104,7 +107,7 @@ print(f"{initial_test_loss=}")
 last_epoch_number = 0
 
 # %% Train #########################################################################
-num_epochs = 20
+num_epochs = 3
 learning_rate = 0.0001
 optimizer = optim.Adam(gpu_model.parameters(), lr=learning_rate)
 for i, epoch in tqdm(enumerate(range(num_epochs))):
@@ -132,20 +135,18 @@ for data in test_loader:
     subplot2.set_title("Output Image")
 
     plt.show()
-
     break
 
 
 
-# %% save model
+# %% Save model
 import dill
-torch.save(gpu_model, "models/vision_transformer_autoencoder.pth", pickle_module=dill)
+torch.save(gpu_model, "models/vision_transformer_autoencoder_4000.pth", pickle_module=dill)
 
 # %% Attention gate output ########################################################
 
 for data in test_loader:
     img = data[torch.randint(low=0, high=31, size=(1,)).item(), :, :, :]
-    print(img.shape)
 
     attention_gate_output = (
         gpu_model.attention_gate_output(img.permute(2, 0, 1).unsqueeze(0).to(device))
@@ -153,10 +154,8 @@ for data in test_loader:
         .squeeze(0)
         .cpu()
     )
-    print(attention_gate_output.shape)
     out_img_mean = attention_gate_output.norm(dim=1)[1:].reshape(2, 2)
 
-    print(out_img_mean.shape)
     figure = plt.figure()
     subplot1 = figure.add_subplot(1, 2, 1)
     subplot1.imshow(img)
