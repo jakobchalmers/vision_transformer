@@ -110,9 +110,9 @@ initial_test_loss = test(model, test_loader, criterion)
 print(f"{initial_test_loss=}")
 
 # %% Training
-num_epochs = 10
+num_epochs = 15
 
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+optimizer = optim.Adam(model.parameters(), lr=0.000001)
 for i, epoch in enumerate(tqdm(range(num_epochs))):
     train_loss = train(model, train_loader, criterion, optimizer)
     test_loss = test(model, test_loader, criterion)
@@ -142,7 +142,8 @@ for test_batch in test_loader:
 
 
 # %% Save model
-torch.save(model, "models/convolutional_autoencoder.pth")
+import dill
+torch.save(model, "models/convolutional_autoencoder.pth", pickle_module=dill)
 # torch.save(model, "models/multiple_particle_convolutional_autoencoder.pth")
 
 

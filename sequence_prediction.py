@@ -53,19 +53,18 @@ print("Done")
 
 try:
     del sys.modules["modules"]
+    del sys.modules["vision_modules"]
     from modules import (
         PrintLayer,
-        ConvolutionalDecoder,
-        ConvolutionalEncoder,
         ConvolutionalAutoencoder,
     )
+    from vision_modules import VisionTransformerAutoencoder
 except KeyError:
     from modules import (
         PrintLayer,
-        ConvolutionalDecoder,
-        ConvolutionalEncoder,
         ConvolutionalAutoencoder,
     )
+    from vision_modules import VisionTransformerAutoencoder
 
 
 class Time2Vector(nn.Module):
@@ -122,6 +121,7 @@ class TransformerPredictor(nn.Module):
 def train(model, train_loader, criterion, optimizer, autoencoder):
     model.train()
     total_loss = 0
+    print("Training...")
     for x in sequence_train_loader:
         batch_size, seq_len, _, _, _ = x.shape
         x = x.to(device)
@@ -166,8 +166,8 @@ def test(model, test_loader, criterion, autoencoder):
 
 def train_for_epochs(predictor_model, autoencoder, epochs=50, learning_rate=0.01):
     criterion = nn.MSELoss()
-    optimizer_convolution = torch.optim.Adam(
-        model_convolution.parameters(), lr=learning_rate
+    optimizer = torch.optim.Adam(
+        predictor_model.parameters(), lr=learning_rate
     )
 
     # scheduler_convolution = torch.optim.lr_scheduler.MultiplicativeLR(
@@ -180,7 +180,7 @@ def train_for_epochs(predictor_model, autoencoder, epochs=50, learning_rate=0.01
             predictor_model,
             sequence_train_loader,
             criterion,
-            optimizer_convolution,
+            optimizer,
             autoencoder,
         )
         test_loss = test(predictor_model, sequence_test_loader, criterion, autoencoder)
@@ -314,11 +314,12 @@ model_convolution = TransformerPredictor(
     latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
 ).to(device)
 
+# %% #TODO: fix, complains at autoencoder.encoder
 train_for_epochs(
     model_convolution,
     autoencoder=convolutional_autoencoder,
-    epochs=50,
-    learning_rate=0.01,
+    epochs=10,
+    learning_rate=0.0001,
 )
 
 
@@ -339,7 +340,24 @@ sequence_prediction_test(
 )
 
 # %% Train Model with Vision Transformer Autoencoder
-# TODO
+import dill
+from vision_modules import VisionTransformerAutoencoder
+# Load autoencoder
+vision_autoencoder: VisionTransformerAutoencoder = torch.load(
+    "models/vision_transformer_autoencoder.pth",
+    pickle_module=dill,
+)
+model_vision = TransformerPredictor(
+    latent_dim=4, seq_len=9, num_transformer_layers=4, nhead=3,
+).to(device)
+
+# %%
+train_for_epochs(
+    model_vision,
+    autoencoder=vision_autoencoder,
+    epochs=10,
+    learning_rate=0.01,
+)
 
 # %% Test Convolutional Autoencoder (images)
 # TODO
