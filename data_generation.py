@@ -94,8 +94,8 @@ def main():
 
     data_size = 2000
     test_data_size = data_size // 10
-    FILE_NAME = f"data/consistent_intensity_multiple_particle_dataset_{data_size}.pth"
-    TEST_FILE_NAME = f"data/consistent_intensity_multiple_particle_test_dataset_{test_data_size}.pth"
+    FILE_NAME = f"data/multiple_particle_dataset_{data_size}.pth"
+    TEST_FILE_NAME = f"data/multiple_particle_test_dataset_{test_data_size}.pth"
 
     print(FILE_NAME, TEST_FILE_NAME)
     input("Sure?")
